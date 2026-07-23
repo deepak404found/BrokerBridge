@@ -10,7 +10,7 @@
 | **Status** | completed |
 | **When** | 2026-07-24 |
 | **Who** | deepak404found \<deepakyadu404@gmail.com\> |
-| **Where** | branch `main` `180fb64` |
+| **Where** | branch `main` `ef28b34` |
 | **Why** | Unlock Local Lab persistence, pluggable mock/real providers, and JWT-protected admin APIs so later waves can build sessions, IPs, and orders on a real auth + config foundation |
 
 ## What changed

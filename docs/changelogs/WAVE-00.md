@@ -10,7 +10,7 @@
 | **Status** | completed |
 | **When** | 2026-07-23 |
 | **Who** | deepak404found |
-| **Where** | branch `main` `c2d8a5e` |
+| **Where** | branch `main` `9abc121` |
 | **Why** | Establish runnable Local Lab so all later waves can demo against Compose, Admin, and Swagger without cloud dependencies |
 
 ## What changed
