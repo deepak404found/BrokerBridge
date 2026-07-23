@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,7 +10,27 @@ from app.config.settings import get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import setup_logging
 from app.core.middleware import RequestIdMiddleware
-from app.schemas.errors import ErrorResponse
+from app.db.base import Base
+from app.db.seed import seed_defaults
+from app.db.session import configure_engine, get_session_factory
+from app.api.openapi import APP_INTERNAL_ERROR, APP_VALIDATION_ERROR
+import app.models  # noqa: F401 — register models
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = get_settings()
+    configure_engine(settings.database_url)
+    factory = get_session_factory()
+    # W1: create schema on startup (Alembic also provided for prod-style upgrades)
+    from app.db.session import engine
+
+    assert engine is not None
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with factory() as session:
+        await seed_defaults(session, settings)
+    yield
 
 
 def create_app() -> FastAPI:
@@ -21,9 +42,10 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.docs_enabled else None,
         redoc_url="/redoc" if settings.docs_enabled else None,
         openapi_url="/openapi.json" if settings.docs_enabled else None,
+        lifespan=lifespan,
         responses={
-            422: {"model": ErrorResponse, "description": "Validation error"},
-            500: {"model": ErrorResponse, "description": "Internal server error"},
+            422: APP_VALIDATION_ERROR,
+            500: APP_INTERNAL_ERROR,
         },
     )
     app.add_middleware(RequestIdMiddleware)

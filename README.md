@@ -19,16 +19,22 @@ poetry install
 # Unit tests
 poetry run pytest -q
 
-# API only (no full compose stack)
+# API only (no full compose stack; needs Postgres for real DB, or use compose)
 poetry run uvicorn app.main:app --reload --port 8000
+
+# Optional: apply Alembic migrations against DATABASE_URL
+poetry run alembic upgrade head
 ```
 
 Copy `.env.example` to `.env` if you want local overrides.
 
+**Dev admin (seeded on startup):** `admin@brokerbridge.local` / `admin123!`  
+Login via Swagger `POST /api/v1/auth/token` (username = email) or the Admin JWT panel.
+
 ## Status
 
-Wave 0 Local Lab foundation is up (`docker compose up --build`, `/admin`, `/docs`, health).  
-**Next:** Wave 1 after W0 commit — see master plan.
+Wave 0 foundation + Wave 1 (DB, providers, JWT) are implemented.  
+**Next:** Wave 2 — Brokers + Sessions + IP/Infra.
 
 ## Local Lab (Docker Compose)
 
@@ -47,6 +53,8 @@ docker compose up --build -d
 | Ready | http://localhost:8000/health/ready |
 
 Stack services: `api`, `worker`, `postgres`, `redis`, `redpanda`.
+
+Startup creates schema (`create_all`) and seeds mock providers + admin user. Alembic migration `001_initial` is also available for prod-style upgrades.
 
 ## Wave workflow
 

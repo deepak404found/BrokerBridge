@@ -4,15 +4,13 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel
 
 from app.core.errors import AppError
-from app.main import create_app
 
 
 class _EchoIn(BaseModel):
     name: str
 
 
-def _app_with_error_routes():
-    app = create_app()
+def _app_with_error_routes(base_app):
     router = APIRouter()
 
     @router.get("/__test__/boom")
@@ -32,13 +30,13 @@ def _app_with_error_routes():
     async def echo(payload: _EchoIn) -> dict[str, str]:
         return {"name": payload.name}
 
-    app.include_router(router)
-    return app
+    base_app.include_router(router)
+    return base_app
 
 
 @pytest.fixture
-async def error_client():
-    app = _app_with_error_routes()
+async def error_client(configured_app):
+    app = _app_with_error_routes(configured_app)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
@@ -70,10 +68,10 @@ async def test_validation_error_envelope(error_client):
 
 
 @pytest.mark.asyncio
-async def test_unhandled_error_envelope_hides_internals():
+async def test_unhandled_error_envelope_hides_internals(configured_app):
     # Exception handlers for bare Exception run via ServerErrorMiddleware, which
     # re-raises after sending the response so servers/tests can observe it.
-    app = _app_with_error_routes()
+    app = _app_with_error_routes(configured_app)
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.get("/__test__/crash")

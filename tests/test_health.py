@@ -1,9 +1,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app.main import create_app
 from app.schemas.health import CheckResult, ReadyChecks, ReadyResponse
 
 
@@ -69,8 +67,7 @@ async def test_ready_schema_shape(client):
         assert "detail" in check
 
 
-def test_admin_index():
-    client = TestClient(create_app())
-    r = client.get("/admin/")
+def test_admin_index(sync_client):
+    r = sync_client.get("/admin/")
     assert r.status_code == 200
     assert "text/html" in r.headers.get("content-type", "")

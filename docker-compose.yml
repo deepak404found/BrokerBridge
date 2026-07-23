@@ -69,6 +69,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://brokerbridge:brokerbridge@postgres:5432/brokerbridge
       REDIS_URL: redis://redis:6379/0
       REDPANDA_BROKERS: redpanda:9092
+      JWT_SECRET: dev-jwt-secret-change-me-32b-min!!
+      SEED_ADMIN_EMAIL: admin@brokerbridge.local
+      SEED_ADMIN_PASSWORD: admin123!
+      INFRA_PROVIDER: mock
+      BROKER_PROVIDER: mock
     depends_on:
       postgres:
         condition: service_healthy
@@ -98,6 +103,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://brokerbridge:brokerbridge@postgres:5432/brokerbridge
       REDIS_URL: redis://redis:6379/0
       REDPANDA_BROKERS: redpanda:9092
+      JWT_SECRET: dev-jwt-secret-change-me-32b-min!!
+      SEED_ADMIN_EMAIL: admin@brokerbridge.local
+      SEED_ADMIN_PASSWORD: admin123!
+      INFRA_PROVIDER: mock
+      BROKER_PROVIDER: mock
     depends_on:
       postgres:
         condition: service_healthy

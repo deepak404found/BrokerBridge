@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Response
 
+from app.api.openapi import LIVE_SUCCESS, READY_RESPONSES
 from app.config.settings import get_settings
 from app.core.health_checks import run_readiness_checks
 from app.schemas.health import LiveResponse, ReadyResponse
@@ -12,7 +13,7 @@ router = APIRouter(tags=["health"])
     response_model=LiveResponse,
     summary="Liveness probe",
     description="Process is up. Does not check dependencies.",
-    responses={200: {"description": "Process is alive", "model": LiveResponse}},
+    responses=LIVE_SUCCESS,
 )
 async def live() -> LiveResponse:
     return LiveResponse(status="ok")
@@ -26,16 +27,7 @@ async def live() -> LiveResponse:
         "TCP connectivity to Postgres, Redis, and Redpanda using configured URLs. "
         "Returns 200 when all critical checks pass; 503 when any check fails."
     ),
-    responses={
-        200: {
-            "description": "All critical dependencies ready",
-            "model": ReadyResponse,
-        },
-        503: {
-            "description": "One or more critical dependencies not ready",
-            "model": ReadyResponse,
-        },
-    },
+    responses=READY_RESPONSES,
 )
 async def ready(response: Response) -> ReadyResponse:
     settings = get_settings()

@@ -61,7 +61,7 @@
 | Wave | Plan file |
 |---|---|
 | W0 | `docs/plans/2026-07-23-wave-0-foundation.md` ✅ completed + committed |
-| W1 | `docs/plans/WAVE-1-data-providers-auth.md` *(create before start)* |
+| W1 | `docs/plans/WAVE-1-data-providers-auth.md` ✅ completed + committed |
 | W2 | `docs/plans/WAVE-2-brokers-sessions-ip.md` *(create before start)* |
 | W3 | `docs/plans/WAVE-3-routing-orders.md` *(create before start)* |
 | W4 | `docs/plans/WAVE-4-rotation-events.md` *(create before start)* |
@@ -82,7 +82,7 @@
 ### Master progress
 
 - [x] W0 Foundation
-- [ ] W1 Data + Providers + Auth
+- [x] W1 Data + Providers + Auth
 - [ ] W2 Brokers + Sessions + IP
 - [ ] W3 Routing + Orders
 - [ ] W4 Rotation + Events

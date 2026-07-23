@@ -21,6 +21,21 @@ class Settings(BaseSettings):
         default="localhost:19092",
         validation_alias="REDPANDA_BROKERS",
     )
+    jwt_secret: str = Field(
+        default="dev-jwt-secret-change-me-32b-min!!",
+        validation_alias="JWT_SECRET",
+    )
+    jwt_algorithm: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")
+    jwt_expire_minutes: int = Field(default=60, validation_alias="JWT_EXPIRE_MINUTES")
+    # url-safe base64 32-byte key; override in real deploys
+    secrets_fernet_key: str = Field(
+        default="WrU8g7fNF5VR7r_n03I_RXkGAFBhYx0I7WSeeFUeJw4=",
+        validation_alias="SECRETS_FERNET_KEY",
+    )
+    seed_admin_email: str = Field(default="admin@brokerbridge.local", validation_alias="SEED_ADMIN_EMAIL")
+    seed_admin_password: str = Field(default="admin123!", validation_alias="SEED_ADMIN_PASSWORD")
+    infra_provider: str = Field(default="mock", validation_alias="INFRA_PROVIDER")
+    broker_provider: str = Field(default="mock", validation_alias="BROKER_PROVIDER")
 
 
 @lru_cache

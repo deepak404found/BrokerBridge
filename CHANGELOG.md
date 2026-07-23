@@ -12,6 +12,25 @@ Commit + changelog updates happen **after wave testing**, only with user approva
 
 - Planning artifacts continue under `docs/plans/` for upcoming waves
 
+## [0.2.0] - 2026-07-24
+
+### Added
+
+- Async DB layer (SQLAlchemy 2 + Alembic) with `Client`, `User`, and `ProviderConfig` models
+- Provider framework: protocols, mock broker/infrastructure adapters, `ProviderManager` (DB → env → mock)
+- Fernet-encrypted provider secrets; admin provider list/get/put APIs with masked secrets
+- JWT auth: bcrypt passwords, `POST /api/v1/auth/token`, role-gated admin routes
+- Seeded admin user + default mock provider configs; Admin UI login wiring in `api.js`
+- OpenAPI examples and documented 401 responses for protected admin endpoints
+- Tests for auth, providers, and DB models (20 total)
+
+### Who / Where
+
+- Who: deepak404found
+- Where: branch `main` @180fb64
+
+See `docs/changelogs/WAVE-01.md` for full Wave 1 detail.
+
 ## [0.1.0] - 2026-07-23
 
 ### Added
