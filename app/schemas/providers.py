@@ -5,19 +5,31 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+_ACTIVATE_EXAMPLE = {
+    "provider_type": "mock",
+    "scope": "global",
+    "client_id": None,
+    "validate_first": True,
+    "activate": True,
+    "config": {"region": "ewr", "api_key": "vultr-secret-key"},
+}
+
+_PROVIDER_RESPONSE_EXAMPLE = {
+    "kind": "infrastructure",
+    "provider_type": "mock",
+    "version": 1,
+    "status": "active",
+    "config": {"region": "ewr", "api_key": "***"},
+    "validated": True,
+    "activated_at": "2026-07-23T12:00:00Z",
+}
+
+
 class ProviderActivateRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
-            "examples": [
-                {
-                    "provider_type": "mock",
-                    "scope": "global",
-                    "client_id": None,
-                    "validate_first": True,
-                    "activate": True,
-                    "config": {"region": "ewr", "api_key": "vultr-secret-key"},
-                }
-            ]
+            "example": _ACTIVATE_EXAMPLE,
+            "examples": [_ACTIVATE_EXAMPLE],
         }
     )
 
@@ -35,17 +47,8 @@ class ProviderActivateRequest(BaseModel):
 class ProviderConfigResponse(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
-            "examples": [
-                {
-                    "kind": "infrastructure",
-                    "provider_type": "mock",
-                    "version": 1,
-                    "status": "active",
-                    "config": {"region": "ewr", "api_key": "***"},
-                    "validated": True,
-                    "activated_at": "2026-07-23T12:00:00Z",
-                }
-            ]
+            "example": _PROVIDER_RESPONSE_EXAMPLE,
+            "examples": [_PROVIDER_RESPONSE_EXAMPLE],
         }
     )
 

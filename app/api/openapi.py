@@ -142,16 +142,41 @@ EXAMPLE_READY_NOT_READY: dict[str, Any] = {
 }
 
 
-def json_example(example: Any) -> dict[str, Any]:
-    """OpenAPI media-type content block with a single realistic example."""
-    return {"application/json": {"example": example}}
+def json_example(
+    example: Any,
+    *,
+    name: str = "default",
+    summary: str = "Example",
+) -> dict[str, Any]:
+    """OpenAPI media-type content with singular + named examples.
+
+    Swagger UI Example Value follows media-type ``example`` / ``examples.*.value``.
+    Schema-only ``json_schema_extra`` / field ``examples`` often still render as
+    type placeholders (``\"string\"``, ``additionalProp1``).
+    """
+    return {
+        "application/json": {
+            "example": example,
+            "examples": {
+                name: {
+                    "summary": summary,
+                    "value": example,
+                }
+            },
+        }
+    }
 
 
-def error_response(description: str, *, example: dict[str, Any]) -> dict[str, Any]:
+def error_response(
+    description: str,
+    *,
+    example: dict[str, Any],
+    summary: str = "Error envelope",
+) -> dict[str, Any]:
     return {
         "model": ErrorResponse,
         "description": description,
-        "content": json_example(example),
+        "content": json_example(example, name="error", summary=summary),
     }
 
 
@@ -160,10 +185,11 @@ def success_response(
     *,
     example: Any,
     model: Any | None = None,
+    summary: str = "Success",
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
         "description": description,
-        "content": json_example(example),
+        "content": json_example(example, name="success", summary=summary),
     }
     if model is not None:
         body["model"] = model

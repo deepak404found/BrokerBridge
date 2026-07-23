@@ -50,10 +50,24 @@ class ReadyChecks(BaseModel):
     redpanda: CheckResult
 
 
+_LIVE_EXAMPLE = {"status": "ok"}
+
+_READY_EXAMPLE = {
+    "status": "ok",
+    "checks": {
+        "postgres": {"status": "ok", "latency_ms": 2.4, "detail": None},
+        "redis": {"status": "ok", "latency_ms": 0.8, "detail": None},
+        "redpanda": {"status": "ok", "latency_ms": 1.1, "detail": None},
+    },
+}
+
+
 class LiveResponse(BaseModel):
     """Liveness: process is up (no dependency checks)."""
 
-    model_config = ConfigDict(json_schema_extra={"examples": [{"status": "ok"}]})
+    model_config = ConfigDict(
+        json_schema_extra={"example": _LIVE_EXAMPLE, "examples": [_LIVE_EXAMPLE]}
+    )
 
     status: Literal["ok"] = Field(default="ok", examples=["ok"])
 
@@ -62,18 +76,7 @@ class ReadyResponse(BaseModel):
     """Readiness: whether the API can accept traffic."""
 
     model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {
-                    "status": "ok",
-                    "checks": {
-                        "postgres": {"status": "ok", "latency_ms": 2.4, "detail": None},
-                        "redis": {"status": "ok", "latency_ms": 0.8, "detail": None},
-                        "redpanda": {"status": "ok", "latency_ms": 1.1, "detail": None},
-                    },
-                }
-            ]
-        }
+        json_schema_extra={"example": _READY_EXAMPLE, "examples": [_READY_EXAMPLE]}
     )
 
     status: Literal["ok", "not_ready"] = Field(
