@@ -94,10 +94,11 @@ yarn-error.log*
 .next/
 out/
 
-# --- Cursor local (keep rules tracked; ignore other local state) ---
-.cursor/*
-!.cursor/rules/
-!.cursor/rules/**
+# --- AI / agent tooling (local only; not part of assignment deliverable) ---
+.cursor/
+CLAUDE.md
+AGENTS.md
+docs/changelogs/
 
 # --- Test / coverage artifacts ---
 coverage.xml
