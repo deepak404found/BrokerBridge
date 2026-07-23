@@ -47,7 +47,7 @@ docker compose up --build -d
 | Surface | URL |
 |---|---|
 | Admin | http://localhost:8000/admin |
-| Swagger | http://localhost:8000/docs |
+| Swagger | http://localhost:8000/docs (Authorize persists after refresh) |
 | ReDoc | http://localhost:8000/redoc |
 | Live | http://localhost:8000/health/live |
 | Ready | http://localhost:8000/health/ready |

@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.docs_enabled else None,
         redoc_url="/redoc" if settings.docs_enabled else None,
         openapi_url="/openapi.json" if settings.docs_enabled else None,
+        swagger_ui_parameters={"persistAuthorization": True},
         lifespan=lifespan,
         responses={
             422: APP_VALIDATION_ERROR,
