@@ -6,7 +6,7 @@
 
 **Architecture:** Modular monolith (FastAPI + workers), provider-based adapters, Clean Architecture layers, PostgreSQL / Redis / Redpanda. Specs: `local/PRD.md` v2.3, `local/TDD.md` v2.3.
 
-**Tech Stack:** Python 3.12, FastAPI, SQLAlchemy 2 + Alembic, Pydantic v2, Redis, Redpanda, pytest, Docker Compose, Render (prod).
+**Tech Stack:** Python 3.12, Poetry, FastAPI, SQLAlchemy 2 + Alembic, Pydantic v2, Redis, Redpanda, pytest, Docker Compose, Render (prod).
 
 ## Global Constraints
 
@@ -60,7 +60,7 @@
 
 | Wave | Plan file |
 |---|---|
-| W0 | `docs/plans/2026-07-23-wave-0-foundation.md` |
+| W0 | `docs/plans/2026-07-23-wave-0-foundation.md` ✅ completed + committed |
 | W1 | `docs/plans/WAVE-1-data-providers-auth.md` *(create before start)* |
 | W2 | `docs/plans/WAVE-2-brokers-sessions-ip.md` *(create before start)* |
 | W3 | `docs/plans/WAVE-3-routing-orders.md` *(create before start)* |
@@ -81,7 +81,7 @@
 
 ### Master progress
 
-- [ ] W0 Foundation
+- [x] W0 Foundation
 - [ ] W1 Data + Providers + Auth
 - [ ] W2 Brokers + Sessions + IP
 - [ ] W3 Routing + Orders

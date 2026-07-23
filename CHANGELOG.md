@@ -10,24 +10,22 @@ Commit + changelog updates happen **after wave testing**, only with user approva
 
 ### Documentation
 
-- PRD v2.3 and TDD v2.3 (product + technical specs)
-- Master implementation plan (waves W0–W6) and Wave 0 foundation plan
-- CLAUDE.md, AGENTS.md, and Cursor rules (architecture, waves, changelog workflow)
-- Changelog template for wave completions
-- Root README and Python/Docker-oriented `.gitignore`
-
----
-
-<!-- Example after Wave 0 commit:
+- Planning artifacts continue under `docs/plans/` for upcoming waves
 
 ## [0.1.0] - 2026-07-23
 
 ### Added
-- Local Lab Docker Compose skeleton, `/health`, `/docs`, `/admin` shell
+
+- Local Lab via Docker Compose (api, worker, postgres, redis, redpanda)
+- Poetry project (`pyproject.toml` + `poetry.lock`)
+- FastAPI health endpoints with typed live/ready schemas and TCP readiness probes
+- Centralized API error envelope and `X-Request-ID` middleware
+- Operations Admin HTML shell at `/admin` and Swagger at `/docs`
+- Worker heartbeat stub and pytest suite (10 tests)
 
 ### Who / Where
-- Who: deepak404found
-- Where: branch `main` @ <sha>
 
-See `docs/changelogs/WAVE-00.md` for full detail.
--->
+- Who: deepak404found
+- Where: branch `main` @c2d8a5e
+
+See `docs/changelogs/WAVE-00.md` for full Wave 0 detail.

@@ -1,0 +1,2415 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BrokerBridge — Production Broker Gateway & Static IP Orchestrator</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: {
+                            900: '#07090e',
+                            800: '#0c1017',
+                            700: '#121824',
+                            600: '#1a2234',
+                            500: '#26334d',
+                            400: '#384a6e'
+                        },
+                        brand: {
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            400: '#60a5fa'
+                        },
+                        status: {
+                            healthy: '#10b981',
+                            warning: '#f59e0b',
+                            critical: '#ef4444',
+                            offline: '#64748b',
+                            processing: '#06b6d4'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        :root {
+            --bg-base: #07090e;
+            --bg-surface: #0c1017;
+            --bg-card: #121824;
+            --bg-card-hover: #172030;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(59, 130, 246, 0.3);
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: #e2e8f0;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0c1017;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #334155;
+        }
+
+        .glass-panel {
+            background: rgba(18, 24, 36, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+        }
+
+        .card-glow {
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .card-glow:hover {
+            border-color: rgba(59, 130, 246, 0.4);
+            box-shadow: 0 4px 20px -2px rgba(59, 130, 246, 0.15);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .status-dot-pulse {
+            position: relative;
+        }
+        .status-dot-pulse::after {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            border-radius: 50%;
+            background: inherit;
+            opacity: 0.6;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.8; }
+            70% { transform: scale(2.2); opacity: 0; }
+            100% { transform: scale(2.2); opacity: 0; }
+        }
+
+        /* Drawer transition */
+        .drawer {
+            transition: transform 0.3s ease-in-out;
+        }
+        .drawer-closed {
+            transform: translateX(100%);
+        }
+        .drawer-open {
+            transform: translateX(0);
+        }
+
+        .modal-bg {
+            backdrop-filter: blur(8px);
+            background: rgba(3, 7, 18, 0.75);
+        }
+
+        /* Custom Pulse Indicator */
+        .live-indicator {
+            animation: blinker 1.5s linear infinite;
+        }
+        @keyframes blinker {
+            50% { opacity: 0.2; }
+        }
+
+        .code-block {
+            font-family: 'JetBrains Mono', monospace;
+            background: #080c14;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+    </style>
+</head>
+<body class="antialiased flex h-screen text-sm select-none">
+
+    <aside id="sidebar" class="w-64 bg-dark-800 border-r border-white/10 flex flex-col transition-all duration-300 z-30 shrink-0">
+        <!-- Logo Header -->
+        <div class="h-16 flex items-center justify-between px-4 border-b border-white/10">
+            <div class="flex items-center space-x-3 cursor-pointer" onclick="navigateTo('dashboard')">
+                <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-lg shadow-blue-500/20 font-bold">
+                    <i class="fa-solid fa-network-wired text-lg"></i>
+                </div>
+                <div class="sidebar-text">
+                    <div class="font-bold text-white text-base tracking-tight flex items-center gap-1.5">
+                        BrokerBridge
+                        <span class="text-[10px] bg-blue-500/20 text-blue-400 font-mono px-1.5 py-0.5 rounded uppercase font-semibold">v3.18</span>
+                    </div>
+                    <div class="text-[11px] text-gray-400">Gateway Orchestrator</div>
+                </div>
+            </div>
+            <button id="toggle-sidebar" class="text-gray-400 hover:text-white p-1 rounded hover:bg-white/5 transition">
+                <i class="fa-solid fa-bars-staggered"></i>
+            </button>
+        </div>
+
+        <!-- System Health Bar -->
+        <div class="px-3 py-2 bg-dark-900/50 border-b border-white/5 flex items-center justify-between sidebar-text">
+            <div class="flex items-center space-x-2">
+                <span class="status-dot bg-emerald-500 status-dot-pulse"></span>
+                <span class="text-xs text-gray-300 font-medium">Cluster Healthy</span>
+            </div>
+            <span class="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">99.998%</span>
+        </div>
+
+        <!-- Navigation Links -->
+        <nav class="flex-1 overflow-y-auto px-2 py-3 space-y-1">
+            <div class="text-[10px] font-bold text-gray-500 uppercase px-3 mb-1 sidebar-text tracking-wider">Core Operations</div>
+
+            <a data-page="dashboard" onclick="navigateTo('dashboard')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-300 hover:bg-white/5 hover:text-white cursor-pointer transition active">
+                <i class="fa-solid fa-chart-line w-5 text-center text-blue-400"></i>
+                <span class="sidebar-text font-medium">Dashboard</span>
+            </a>
+
+            <a data-page="clients" onclick="navigateTo('clients')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-building-user w-5 text-center text-purple-400"></i>
+                <span class="sidebar-text font-medium">Clients</span>
+                <span class="ml-auto bg-blue-500/10 text-blue-400 text-xs px-2 py-0.5 rounded-full sidebar-text font-mono">24</span>
+            </a>
+
+            <a data-page="brokers" onclick="navigateTo('brokers')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-server w-5 text-center text-emerald-400"></i>
+                <span class="sidebar-text font-medium">Brokers</span>
+                <span class="ml-auto bg-emerald-500/10 text-emerald-400 text-xs px-2 py-0.5 rounded-full sidebar-text font-mono">12</span>
+            </a>
+
+            <a data-page="orders" onclick="navigateTo('orders')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-bolt w-5 text-center text-amber-400"></i>
+                <span class="sidebar-text font-medium">Orders</span>
+                <span class="ml-auto bg-amber-500/10 text-amber-400 text-xs px-1.5 py-0.5 rounded font-mono">LIVE</span>
+            </a>
+
+            <a data-page="routing" onclick="navigateTo('routing')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-route w-5 text-center text-cyan-400"></i>
+                <span class="sidebar-text font-medium">Smart Routing</span>
+            </a>
+
+            <div class="text-[10px] font-bold text-gray-500 uppercase px-3 mt-4 mb-1 sidebar-text tracking-wider">Networking & Infra</div>
+
+            <a data-page="static-ips" onclick="navigateTo('static-ips')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-network-wired w-5 text-center text-indigo-400"></i>
+                <span class="sidebar-text font-medium">Static IPs</span>
+                <span class="ml-auto text-xs text-gray-500 sidebar-text font-mono">48/64</span>
+            </a>
+
+            <a data-page="infrastructure" onclick="navigateTo('infrastructure')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-microchip w-5 text-center text-rose-400"></i>
+                <span class="sidebar-text font-medium">Infrastructure</span>
+            </a>
+
+            <a data-page="sessions" onclick="navigateTo('sessions')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-key w-5 text-center text-yellow-400"></i>
+                <span class="sidebar-text font-medium">Sessions</span>
+            </a>
+
+            <div class="text-[10px] font-bold text-gray-500 uppercase px-3 mt-4 mb-1 sidebar-text tracking-wider">Telemetry & Reliability</div>
+
+            <a data-page="broker-health" onclick="navigateTo('broker-health')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-heart-pulse w-5 text-center text-red-400"></i>
+                <span class="sidebar-text font-medium">Broker Health</span>
+            </a>
+
+            <a data-page="rate-limits" onclick="navigateTo('rate-limits')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-gauge-high w-5 text-center text-orange-400"></i>
+                <span class="sidebar-text font-medium">Rate Limits</span>
+            </a>
+
+            <a data-page="events" onclick="navigateTo('events')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-stream w-5 text-center text-teal-400"></i>
+                <span class="sidebar-text font-medium">Event Bus</span>
+                <span class="ml-auto w-2 h-2 rounded-full bg-teal-400 live-indicator"></span>
+            </a>
+
+            <a data-page="monitoring" onclick="navigateTo('monitoring')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-desktop w-5 text-center text-blue-400"></i>
+                <span class="sidebar-text font-medium">Monitoring</span>
+            </a>
+
+            <div class="text-[10px] font-bold text-gray-500 uppercase px-3 mt-4 mb-1 sidebar-text tracking-wider">Governance & Tools</div>
+
+            <a data-page="audit-logs" onclick="navigateTo('audit-logs')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-shield-halved w-5 text-center text-emerald-400"></i>
+                <span class="sidebar-text font-medium">Audit Logs</span>
+            </a>
+
+            <a data-page="config" onclick="navigateTo('config')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-sliders w-5 text-center text-purple-400"></i>
+                <span class="sidebar-text font-medium">Runtime Config</span>
+            </a>
+
+            <a data-page="simulator" onclick="navigateTo('simulator')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition bg-red-500/5 border border-red-500/20">
+                <i class="fa-solid fa-triangle-exclamation w-5 text-center text-red-400"></i>
+                <span class="sidebar-text font-medium text-red-300">Chaos Simulator</span>
+            </a>
+
+            <a data-page="security" onclick="navigateTo('security')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-lock w-5 text-center text-indigo-400"></i>
+                <span class="sidebar-text font-medium">Security & Keys</span>
+            </a>
+
+            <a data-page="monitoring-apis" onclick="navigateTo('monitoring-apis')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-code w-5 text-center text-cyan-400"></i>
+                <span class="sidebar-text font-medium">Monitoring APIs</span>
+            </a>
+
+            <a data-page="settings" onclick="navigateTo('settings')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-gear w-5 text-center text-gray-400"></i>
+                <span class="sidebar-text font-medium">Settings</span>
+            </a>
+
+            <a href="/docs" target="_blank" rel="noopener noreferrer" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-book w-5 text-center text-sky-400"></i>
+                <span class="sidebar-text font-medium">API Docs</span>
+                <i class="fa-solid fa-arrow-up-right-from-square ml-auto text-[10px] text-gray-500 sidebar-text"></i>
+            </a>
+        </nav>
+
+        <!-- User Profile Card in Sidebar Footer -->
+        <div class="p-3 border-t border-white/10 bg-dark-900/80 flex items-center justify-between">
+            <div class="flex items-center space-x-2.5 overflow-hidden">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 to-blue-500 flex items-center justify-center font-semibold text-white text-xs shrink-0">
+                    SA
+                </div>
+                <div class="sidebar-text overflow-hidden">
+                    <div class="text-xs font-semibold text-white truncate">SecOps Lead</div>
+                    <div class="text-[10px] text-gray-400 truncate">admin@brokerbridge.io</div>
+                </div>
+            </div>
+            <div class="relative">
+                <button onclick="toggleUserDropdown()" class="text-gray-400 hover:text-white p-1.5 rounded hover:bg-white/5">
+                    <i class="fa-solid fa-ellipsis-vertical"></i>
+                </button>
+                <div id="user-dropdown" class="hidden absolute bottom-10 left-0 w-48 bg-dark-700 border border-white/10 rounded-lg shadow-2xl py-1 z-50 text-xs">
+                    <div class="px-3 py-2 border-b border-white/5 text-gray-400">
+                        Role: <span class="text-blue-400 font-mono">Platform Admin</span>
+                    </div>
+                    <a href="#" onclick="showNotification('Profile & API Keys accessible in Security tab')" class="block px-3 py-2 text-gray-300 hover:bg-white/5">My Profile</a>
+                    <a href="#" onclick="showNotification('Session refreshed')" class="block px-3 py-2 text-gray-300 hover:bg-white/5">Rotate Admin Auth Token</a>
+                    <div class="border-t border-white/5"></div>
+                    <a href="#" onclick="showNotification('Switched environment to Production EU-CENTRAL-1')" class="block px-3 py-2 text-amber-400 hover:bg-white/5">Switch Region (US-East)</a>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col h-screen overflow-hidden">
+
+        <header class="h-16 bg-dark-800 border-b border-white/10 flex items-center justify-between px-6 z-20 shrink-0">
+            <!-- Left: Breadcrumb Navigation -->
+            <div class="flex items-center space-x-3 text-sm">
+                <i class="fa-solid fa-cube text-blue-500"></i>
+                <span class="text-gray-400 font-medium">Gateway Cluster</span>
+                <span class="text-gray-600">/</span>
+                <span id="breadcrumb-current" class="text-white font-semibold capitalize">Dashboard</span>
+            </div>
+
+            <!-- Middle: Quick Search Bar -->
+            <div class="relative w-80 hidden md:block">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-500 text-xs"></i>
+                <input type="text" id="global-search" oninput="handleGlobalSearch(this.value)" placeholder="Search Brokers, Clients, IPs, Orders..." class="w-full bg-dark-900 border border-white/10 rounded-lg pl-9 pr-8 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition">
+                <span class="absolute right-2.5 top-2 text-[10px] text-gray-500 font-mono bg-white/5 px-1.5 rounded">⌘K</span>
+            </div>
+
+            <!-- Right: Status Indicators & Notification Bell -->
+            <div class="flex items-center space-x-4">
+                <!-- Region Switcher Badge -->
+                <div class="hidden sm:flex items-center space-x-2 bg-dark-900 border border-white/10 px-2.5 py-1 rounded-lg">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span class="text-xs font-mono text-gray-300">us-east-1 (Equinix NY4)</span>
+                </div>
+
+                <!-- Active Alert Banner Widget Button -->
+                <button onclick="navigateTo('simulator')" class="flex items-center space-x-1.5 px-2.5 py-1 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-xs hover:bg-red-500/20 transition">
+                    <i class="fa-solid fa-triangle-exclamation text-xs"></i>
+                    <span class="font-medium hidden lg:inline">Chaos Mode</span>
+                </button>
+
+                <!-- Notifications Dropdown -->
+                <div class="relative">
+                    <button onclick="toggleNotifications()" class="relative p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition">
+                        <i class="fa-regular fa-bell text-base"></i>
+                        <span class="absolute top-1.5 right-1.5 w-2 h-2 bg-blue-500 rounded-full"></span>
+                    </button>
+                    <!-- Notification Panel Drawer -->
+                    <div id="notification-panel" class="hidden absolute right-0 mt-2 w-80 bg-dark-700 border border-white/10 rounded-xl shadow-2xl py-3 z-50">
+                        <div class="px-4 pb-2 border-b border-white/10 flex items-center justify-between">
+                            <span class="font-semibold text-xs text-white">System Events & Alerts</span>
+                            <span class="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded font-mono">3 Unread</span>
+                        </div>
+                        <div class="max-h-72 overflow-y-auto divide-y divide-white/5 text-xs">
+                            <div class="p-3 hover:bg-white/5 cursor-pointer">
+                                <div class="flex justify-between text-gray-400 text-[10px]">
+                                    <span class="text-amber-400 font-semibold"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Rate Limit Threshold</span>
+                                    <span>2m ago</span>
+                                </div>
+                                <p class="text-gray-200 mt-1">Binance US Gateway API nearing 92% capacity limit.</p>
+                            </div>
+                            <div class="p-3 hover:bg-white/5 cursor-pointer">
+                                <div class="flex justify-between text-gray-400 text-[10px]">
+                                    <span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check mr-1"></i> IP Rotation Complete</span>
+                                    <span>8m ago</span>
+                                </div>
+                                <p class="text-gray-200 mt-1">Static IP 198.51.100.42 rotated for Citadel Execution Proxy.</p>
+                            </div>
+                            <div class="p-3 hover:bg-white/5 cursor-pointer">
+                                <div class="flex justify-between text-gray-400 text-[10px]">
+                                    <span class="text-blue-400 font-semibold"><i class="fa-solid fa-arrows-rotate mr-1"></i> Session Refresh</span>
+                                    <span>15m ago</span>
+                                </div>
+                                <p class="text-gray-200 mt-1">LMAX Fix Session #8831 renewed with zero dropped frames.</p>
+                            </div>
+                        </div>
+                        <div class="pt-2 px-4 border-t border-white/10 text-center">
+                            <a href="#" onclick="navigateTo('events')" class="text-[11px] text-blue-400 hover:underline">View Full Audit Stream →</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="flex-1 overflow-y-auto p-6 bg-dark-900/60 relative" id="pages-container">
+
+            <!-- PAGE 1: DASHBOARD -->
+            <section id="page-dashboard" class="page-content space-y-6">
+                <!-- Page Title Header -->
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                            Platform Operations Console
+                            <span class="text-xs font-normal text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full"><i class="fa-solid fa-circle text-[8px] mr-1"></i> LIVE ROUTING</span>
+                        </h1>
+                        <p class="text-xs text-gray-400 mt-0.5">Real-time health, order flow latency, static IP allocations, and multi-broker routing telemetry.</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="triggerRefreshAnimation()" class="px-3 py-1.5 bg-dark-800 border border-white/10 rounded-lg text-xs font-medium text-gray-300 hover:text-white hover:bg-white/5 transition flex items-center gap-2">
+                            <i class="fa-solid fa-rotate-right" id="refresh-icon"></i> Refresh Telemetry
+                        </button>
+                        <button onclick="navigateTo('simulator')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-lg shadow-blue-600/20 transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-vial"></i> Chaos Simulator
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Overview Stat Cards Grid (12 Metrics) -->
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    <div class="glass-panel p-3.5 rounded-xl card-glow">
+                        <div class="text-[11px] text-gray-400 font-medium">Orders Today</div>
+                        <div class="text-lg font-bold text-white font-mono mt-1">1,482,910</div>
+                        <div class="text-[10px] text-emerald-400 flex items-center gap-1 mt-1">
+                            <i class="fa-solid fa-arrow-trend-up"></i> +14.2% vs avg
+                        </div>
+                    </div>
+                    <div class="glass-panel p-3.5 rounded-xl card-glow">
+                        <div class="text-[11px] text-gray-400 font-medium">Success Rate</div>
+                        <div class="text-lg font-bold text-emerald-400 font-mono mt-1">99.992%</div>
+                        <div class="text-[10px] text-gray-400 flex items-center gap-1 mt-1">Target 99.95%</div>
+                    </div>
+                    <div class="glass-panel p-3.5 rounded-xl card-glow">
+                        <div class="text-[11px] text-gray-400 font-medium">Active Brokers</div>
+                        <div class="text-lg font-bold text-white font-mono mt-1">12 / 12</div>
+                        <div class="text-[10px] text-emerald-400 flex items-center gap-1 mt-1"><i class="fa-solid fa-check"></i> All Connected</div>
+                    </div>
+                    <div class="glass-panel p-3.5 rounded-xl card-glow">
+                        <div class="text-[11px] text-gray-400 font-medium">Healthy Brokers</div>
+                        <div class="text-lg font-bold text-emerald-400 font-mono mt-1">11 <span class="text-xs text-amber-400 font-normal">(1 Warn)</span></div>
+                        <div class="text-[10px] text-amber-400 flex items-center gap-1 mt-1"><i class="fa-solid fa-triangle-exclamation"></i> CME High Ping</div>
+                    </div>
+                    <div class="glass-panel p-3.5 rounded-xl card-glow">
+                        <div class="text-[11px] text-gray-400 font-medium">Active Sessions</div>
+                        <div class="text-lg font-bold text-white font-mono mt-1">148</div>
+                        <div class="text-[10px] text-blue-400 flex items-center gap-1 mt-1">FIX & REST Websockets</div>
+                    </div>
+                    <div class="glass-panel p-3.5 rounded-xl card-glow">
+                        <div class="text-[11px] text-gray-400 font-medium">Running Infra Nodes</div>
+                        <div class="text-lg font-bold text-white font-mono mt-1">32 Pods</div>
+                        <div class="text-[10px] text-emerald-400 flex items-center gap-1 mt-1">Kubernetes NY4</div>
+                    </div>
+                    <div class="glass-panel p-3.5 rounded-xl card-glow">
+                        <div class="text-[11px] text-gray-400 font-medium">Static IPs Allocated</div>
+                        <div class="text-lg font-bold text-indigo-400 font-mono mt-1">48 / 64</div>
+                        <div class="text-[10px] text-gray-400 flex items-center gap-1 mt-1">75% Capacity</div>
+                    </div>
+                    <div class="glass-panel p-3.5 rounded-xl card-glow">
+                        <div class="text-[11px] text-gray-400 font-medium">API Requests/sec</div>
+                        <div class="text-lg font-bold text-white font-mono mt-1">24,190</div>
+                        <div class="text-[10px] text-purple-400 flex items-center gap-1 mt-1">Peak: 38.4k rps</div>
+                    </div>
+                    <div class="glass-panel p-3.5 rounded-xl card-glow">
+                        <div class="text-[11px] text-gray-400 font-medium">Queue Size</div>
+                        <div class="text-lg font-bold text-white font-mono mt-1">12 msgs</div>
+                        <div class="text-[10px] text-emerald-400 flex items-center gap-1 mt-1">Kafka Partition 0-7</div>
+                    </div>
+                    <div class="glass-panel p-3.5 rounded-xl card-glow">
+                        <div class="text-[11px] text-gray-400 font-medium">Mean Gateway Ping</div>
+                        <div class="text-lg font-bold text-cyan-400 font-mono mt-1">1.84 ms</div>
+                        <div class="text-[10px] text-cyan-400 flex items-center gap-1 mt-1">Cross-connect NY4</div>
+                    </div>
+                    <div class="glass-panel p-3.5 rounded-xl card-glow">
+                        <div class="text-[11px] text-gray-400 font-medium">Failed Orders</div>
+                        <div class="text-lg font-bold text-rose-400 font-mono mt-1">18</div>
+                        <div class="text-[10px] text-gray-400 flex items-center gap-1 mt-1">0.008% Exception rate</div>
+                    </div>
+                    <div class="glass-panel p-3.5 rounded-xl card-glow">
+                        <div class="text-[11px] text-gray-400 font-medium">Failovers Today</div>
+                        <div class="text-lg font-bold text-amber-400 font-mono mt-1">2</div>
+                        <div class="text-[10px] text-emerald-400 flex items-center gap-1 mt-1">Auto-routed &lt; 5ms</div>
+                    </div>
+                </div>
+
+                <!-- Charts Row 1 -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="glass-panel p-5 rounded-xl lg:col-span-2">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-sm font-semibold text-white">Orders Processed & Routing Latency (60m)</h3>
+                                <p class="text-[11px] text-gray-400">Order execution throughput vs gateway transit latency</p>
+                            </div>
+                            <div class="flex items-center space-x-2 text-xs">
+                                <span class="flex items-center gap-1 text-blue-400"><span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span> Orders/sec</span>
+                                <span class="flex items-center gap-1 text-emerald-400"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Latency (ms)</span>
+                            </div>
+                        </div>
+                        <div class="h-64 w-full">
+                            <canvas id="chart-orders-latency"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel p-5 rounded-xl">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-white">Broker Load Distribution</h3>
+                            <span class="text-xs text-gray-400 font-mono">Live %</span>
+                        </div>
+                        <div class="h-64 w-full">
+                            <canvas id="chart-broker-load"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Row 2 -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass-panel p-5 rounded-xl">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-white">Broker Health & Availability Timeline</h3>
+                            <span class="text-xs text-emerald-400 font-mono">100% Up</span>
+                        </div>
+                        <div class="space-y-3 font-mono text-xs">
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-300 w-32 truncate">Interactive Brokers</span>
+                                <div class="flex-1 mx-3 flex gap-0.5">
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                </div>
+                                <span class="text-emerald-400 w-12 text-right">0.8ms</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-300 w-32 truncate">CME Direct Fix</span>
+                                <div class="flex-1 mx-3 flex gap-0.5">
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-amber-500/80 rounded-sm" title="High Ping 24ms"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                </div>
+                                <span class="text-amber-400 w-12 text-right">18.2ms</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-300 w-32 truncate">Binance Inst.</span>
+                                <div class="flex-1 mx-3 flex gap-0.5">
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                </div>
+                                <span class="text-emerald-400 w-12 text-right">3.1ms</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-300 w-32 truncate">LMAX Exchange</span>
+                                <div class="flex-1 mx-3 flex gap-0.5">
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                </div>
+                                <span class="text-emerald-400 w-12 text-right">1.2ms</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-300 w-32 truncate">Coinbase Prime</span>
+                                <div class="flex-1 mx-3 flex gap-0.5">
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                    <div class="h-4 flex-1 bg-emerald-500/80 rounded-sm"></div>
+                                </div>
+                                <span class="text-emerald-400 w-12 text-right">4.5ms</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel p-5 rounded-xl">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-white">Worker Queues & System Backpressure</h3>
+                            <span class="text-xs text-blue-400 font-mono">Kafka Cluster: OK</span>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <div class="flex justify-between text-xs mb-1">
+                                    <span class="text-gray-300">Order Routing Partition 01</span>
+                                    <span class="text-gray-400 font-mono">14 / 10,000 msgs (0.1%)</span>
+                                </div>
+                                <div class="w-full bg-dark-900 rounded-full h-2 overflow-hidden border border-white/5">
+                                    <div class="bg-blue-500 h-2 rounded-full" style="width: 2%"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-xs mb-1">
+                                    <span class="text-gray-300">FIX Protocol Serializer Pool</span>
+                                    <span class="text-gray-400 font-mono">82 / 1,000 threads (8.2%)</span>
+                                </div>
+                                <div class="w-full bg-dark-900 rounded-full h-2 overflow-hidden border border-white/5">
+                                    <div class="bg-emerald-500 h-2 rounded-full" style="width: 8%"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-xs mb-1">
+                                    <span class="text-gray-300">Static IP Proxy Buffer</span>
+                                    <span class="text-gray-400 font-mono">420 / 5,000 conns (8.4%)</span>
+                                </div>
+                                <div class="w-full bg-dark-900 rounded-full h-2 overflow-hidden border border-white/5">
+                                    <div class="bg-indigo-500 h-2 rounded-full" style="width: 8%"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-xs mb-1">
+                                    <span class="text-gray-300">Audit Log Sync Pipeline</span>
+                                    <span class="text-gray-400 font-mono">2 / 50,000 msgs (0.01%)</span>
+                                </div>
+                                <div class="w-full bg-dark-900 rounded-full h-2 overflow-hidden border border-white/5">
+                                    <div class="bg-purple-500 h-2 rounded-full" style="width: 1%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Widgets Row: Events, Failures, Top Brokers, Active Alerts -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <!-- Recent Events -->
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
+                            <span class="font-semibold text-xs text-white uppercase tracking-wider">Recent Events</span>
+                            <a href="#" onclick="navigateTo('events')" class="text-[11px] text-blue-400 hover:underline">View All</a>
+                        </div>
+                        <div class="space-y-2.5 text-xs">
+                            <div class="flex items-start space-x-2">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0"></span>
+                                <div>
+                                    <p class="text-gray-200">Session IBKR-NY4-01 authenticated</p>
+                                    <span class="text-[10px] text-gray-500 font-mono">10s ago</span>
+                                </div>
+                            </div>
+                            <div class="flex items-start space-x-2">
+                                <span class="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0"></span>
+                                <div>
+                                    <p class="text-gray-200">Smart route updated for Citadel Sec</p>
+                                    <span class="text-[10px] text-gray-500 font-mono">42s ago</span>
+                                </div>
+                            </div>
+                            <div class="flex items-start space-x-2">
+                                <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0"></span>
+                                <div>
+                                    <p class="text-gray-200">IP 192.0.2.81 assigned to Saxo Bank</p>
+                                    <span class="text-[10px] text-gray-500 font-mono">2m ago</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Failures -->
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
+                            <span class="font-semibold text-xs text-white uppercase tracking-wider">Recent Exceptions</span>
+                            <span class="text-[10px] text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded font-mono">0.008% Fail Rate</span>
+                        </div>
+                        <div class="space-y-2.5 text-xs">
+                            <div class="flex items-start space-x-2">
+                                <i class="fa-solid fa-circle-xmark text-rose-400 mt-0.5 shrink-0"></i>
+                                <div>
+                                    <p class="text-gray-200">FIX 5003: Rate Limit Exceeded</p>
+                                    <span class="text-[10px] text-gray-500 font-mono">Broker: CME • 4m ago</span>
+                                </div>
+                            </div>
+                            <div class="flex items-start space-x-2">
+                                <i class="fa-solid fa-circle-xmark text-amber-400 mt-0.5 shrink-0"></i>
+                                <div>
+                                    <p class="text-gray-200">TCP Handshake Timeout (250ms)</p>
+                                    <span class="text-[10px] text-gray-500 font-mono">Broker: Saxo • 12m ago</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Top Brokers -->
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
+                            <span class="font-semibold text-xs text-white uppercase tracking-wider">Top Brokers By Volume</span>
+                            <a href="#" onclick="navigateTo('brokers')" class="text-[11px] text-blue-400 hover:underline">Manage</a>
+                        </div>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-300 font-medium">1. Interactive Brokers</span>
+                                <span class="font-mono text-white">412,890 orders</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-300 font-medium">2. Coinbase Prime</span>
+                                <span class="font-mono text-white">310,400 orders</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-300 font-medium">3. LMAX Exchange</span>
+                                <span class="font-mono text-white">289,120 orders</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Active Alerts -->
+                    <div class="glass-panel p-4 rounded-xl border-amber-500/30">
+                        <div class="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
+                            <span class="font-semibold text-xs text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                                <i class="fa-solid fa-bell"></i> Active Alerts (1)
+                            </span>
+                            <span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono">P3 WARNING</span>
+                        </div>
+                        <div class="text-xs text-gray-300 space-y-2">
+                            <p class="font-semibold text-white">CME Direct Gateway Latency Elevated</p>
+                            <p class="text-[11px] text-gray-400">Ping increased from 2.1ms to 18.2ms over NY4 cross-connect link.</p>
+                            <div class="pt-2 flex items-center gap-2">
+                                <button onclick="showNotification('Failover initiated to Secondary Equinix CH1 Gateway')" class="px-2 py-1 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 rounded text-[11px] font-medium">
+                                    Trigger Auto-Failover
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 2: CLIENT MANAGEMENT -->
+            <section id="page-clients" class="page-content hidden space-y-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Client Management</h1>
+                        <p class="text-xs text-gray-400">Manage institutional trading firms, API quota tiering, static IP binding, and broker access policies.</p>
+                    </div>
+                    <button onclick="openModal('create-client-modal')" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-lg shadow-blue-600/20 transition flex items-center gap-2">
+                        <i class="fa-solid fa-plus"></i> Onboard New Institutional Client
+                    </button>
+                </div>
+
+                <!-- Client Table -->
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="p-4 border-b border-white/10 flex flex-wrap gap-3 items-center justify-between">
+                        <div class="flex items-center space-x-2">
+                            <input type="text" placeholder="Filter clients by name or Tier..." class="bg-dark-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-64">
+                        </div>
+                        <div class="flex items-center space-x-2 text-xs">
+                            <span class="text-gray-400">Tier Filter:</span>
+                            <select class="bg-dark-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-white focus:outline-none">
+                                <option>All Tiers</option>
+                                <option>Ultra-HFT Enterprise</option>
+                                <option>Market Maker Prime</option>
+                                <option>Standard Institutional</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                                <tr>
+                                    <th class="py-3 px-4">Client Firm</th>
+                                    <th class="py-3 px-4">Subscription Tier</th>
+                                    <th class="py-3 px-4">Status</th>
+                                    <th class="py-3 px-4">Brokers Assigned</th>
+                                    <th class="py-3 px-4">Static IPs</th>
+                                    <th class="py-3 px-4">24h Orders</th>
+                                    <th class="py-3 px-4">Created Date</th>
+                                    <th class="py-3 px-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-white/5 font-mono text-gray-300">
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-white flex items-center gap-2">
+                                        <div class="w-7 h-7 rounded bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">CS</div>
+                                        Citadel Securities LLC
+                                    </td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded font-semibold text-[11px]">Ultra-HFT Tier</span></td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="inline-flex items-center gap-1.5 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded text-[11px]"><span class="status-dot bg-emerald-400"></span> Active</span></td>
+                                    <td class="py-3.5 px-4">12 Brokers</td>
+                                    <td class="py-3.5 px-4"><span class="text-indigo-400 font-semibold">16 Dedicated IPs</span></td>
+                                    <td class="py-3.5 px-4 text-white font-bold">582,102</td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-400">2023-11-14</td>
+                                    <td class="py-3.5 px-4 text-right font-sans space-x-1">
+                                        <button onclick="openClientDrawer('Citadel Securities LLC')" class="px-2.5 py-1 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded font-medium text-xs">View Details</button>
+                                        <button onclick="showNotification('Client details edited')" class="p-1 text-gray-400 hover:text-white"><i class="fa-solid fa-pen-to-square"></i></button>
+                                        <button onclick="showConfirmDialog('Disable Citadel Securities?', 'This will suspend all routing for 16 allocated static IPs.')" class="p-1 text-gray-400 hover:text-rose-400"><i class="fa-solid fa-ban"></i></button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-white flex items-center gap-2">
+                                        <div class="w-7 h-7 rounded bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs">JT</div>
+                                        Jump Trading Group
+                                    </td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded font-semibold text-[11px]">Ultra-HFT Tier</span></td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="inline-flex items-center gap-1.5 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded text-[11px]"><span class="status-dot bg-emerald-400"></span> Active</span></td>
+                                    <td class="py-3.5 px-4">10 Brokers</td>
+                                    <td class="py-3.5 px-4"><span class="text-indigo-400 font-semibold">12 Dedicated IPs</span></td>
+                                    <td class="py-3.5 px-4 text-white font-bold">419,820</td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-400">2024-01-08</td>
+                                    <td class="py-3.5 px-4 text-right font-sans space-x-1">
+                                        <button onclick="openClientDrawer('Jump Trading Group')" class="px-2.5 py-1 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded font-medium text-xs">View Details</button>
+                                        <button onclick="showNotification('Client details edited')" class="p-1 text-gray-400 hover:text-white"><i class="fa-solid fa-pen-to-square"></i></button>
+                                        <button onclick="showConfirmDialog('Disable Jump Trading?', 'This will freeze active sessions.')" class="p-1 text-gray-400 hover:text-rose-400"><i class="fa-solid fa-ban"></i></button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-white flex items-center gap-2">
+                                        <div class="w-7 h-7 rounded bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-xs">JS</div>
+                                        Jane Street Capital
+                                    </td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded font-semibold text-[11px]">Market Maker Prime</span></td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="inline-flex items-center gap-1.5 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded text-[11px]"><span class="status-dot bg-emerald-400"></span> Active</span></td>
+                                    <td class="py-3.5 px-4">8 Brokers</td>
+                                    <td class="py-3.5 px-4"><span class="text-indigo-400 font-semibold">8 Dedicated IPs</span></td>
+                                    <td class="py-3.5 px-4 text-white font-bold">310,400</td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-400">2024-02-19</td>
+                                    <td class="py-3.5 px-4 text-right font-sans space-x-1">
+                                        <button onclick="openClientDrawer('Jane Street Capital')" class="px-2.5 py-1 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded font-medium text-xs">View Details</button>
+                                        <button onclick="showNotification('Client details edited')" class="p-1 text-gray-400 hover:text-white"><i class="fa-solid fa-pen-to-square"></i></button>
+                                        <button onclick="showConfirmDialog('Disable Jane Street?', 'Confirm account suspension.')" class="p-1 text-gray-400 hover:text-rose-400"><i class="fa-solid fa-ban"></i></button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-white flex items-center gap-2">
+                                        <div class="w-7 h-7 rounded bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">TS</div>
+                                        Two Sigma Investments
+                                    </td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded font-semibold text-[11px]">Market Maker Prime</span></td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="inline-flex items-center gap-1.5 text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded text-[11px]"><span class="status-dot bg-amber-400"></span> Quota Throttled</span></td>
+                                    <td class="py-3.5 px-4">6 Brokers</td>
+                                    <td class="py-3.5 px-4"><span class="text-indigo-400 font-semibold">6 Dedicated IPs</span></td>
+                                    <td class="py-3.5 px-4 text-white font-bold">170,590</td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-400">2024-03-01</td>
+                                    <td class="py-3.5 px-4 text-right font-sans space-x-1">
+                                        <button onclick="openClientDrawer('Two Sigma Investments')" class="px-2.5 py-1 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded font-medium text-xs">View Details</button>
+                                        <button onclick="showNotification('Quota increased to 50k rps')" class="p-1 text-gray-400 hover:text-white"><i class="fa-solid fa-pen-to-square"></i></button>
+                                        <button onclick="showConfirmDialog('Disable Two Sigma?', 'Confirm action.')" class="p-1 text-gray-400 hover:text-rose-400"><i class="fa-solid fa-ban"></i></button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 3: BROKER MANAGEMENT -->
+            <section id="page-brokers" class="page-content hidden space-y-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Broker Management</h1>
+                        <p class="text-xs text-gray-400">Orchestrate liquidity provider gateway adapters, FIX protocol endpoints, priority rules, and static IP bindings.</p>
+                    </div>
+                    <button onclick="openModal('add-broker-modal')" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-lg shadow-emerald-600/20 transition flex items-center gap-2">
+                        <i class="fa-solid fa-plus"></i> Connect Broker Gateway Adapter
+                    </button>
+                </div>
+
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="p-4 border-b border-white/10 flex justify-between items-center">
+                        <input type="text" placeholder="Search brokers, regions, capabilities..." class="bg-dark-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-72">
+                        <span class="text-xs text-gray-400 font-mono">Total Supported Capacity: <strong class="text-emerald-400">250,000 orders/sec</strong></span>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                                <tr>
+                                    <th class="py-3 px-4">Broker Gateway</th>
+                                    <th class="py-3 px-4">Provider / Type</th>
+                                    <th class="py-3 px-4">Health Score</th>
+                                    <th class="py-3 px-4">Cross-Connect Latency</th>
+                                    <th class="py-3 px-4">Routing Priority</th>
+                                    <th class="py-3 px-4">Capabilities</th>
+                                    <th class="py-3 px-4">Region</th>
+                                    <th class="py-3 px-4">Status</th>
+                                    <th class="py-3 px-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-white/5 font-mono text-gray-300">
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-white flex items-center gap-2">
+                                        <i class="fa-solid fa-building-columns text-blue-400 text-sm"></i>
+                                        Interactive Brokers
+                                    </td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-300">IBKR TWS / FIX 4.4</td>
+                                    <td class="py-3.5 px-4"><span class="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-bold">100 / 100</span></td>
+                                    <td class="py-3.5 px-4 text-emerald-400 font-bold">0.8 ms</td>
+                                    <td class="py-3.5 px-4"><span class="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded">P1 (Primary)</span></td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="text-gray-300 bg-white/5 px-1.5 py-0.5 rounded text-[10px]">Equities</span> <span class="text-gray-300 bg-white/5 px-1.5 py-0.5 rounded text-[10px]">Options</span> <span class="text-gray-300 bg-white/5 px-1.5 py-0.5 rounded text-[10px]">Futures</span></td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-400">US-EAST (Equinix NY4)</td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded text-[11px] font-medium">ONLINE</span></td>
+                                    <td class="py-3.5 px-4 text-right font-sans space-x-1">
+                                        <button onclick="openBrokerDetail('Interactive Brokers')" class="px-2 py-1 bg-dark-700 hover:bg-white/10 rounded text-xs text-blue-400">Details</button>
+                                        <button onclick="showNotification('Test connection successful (0.82ms latency)')" class="p-1 text-emerald-400 hover:text-emerald-300" title="Test Ping"><i class="fa-solid fa-plug"></i></button>
+                                        <button onclick="showNotification('Session refreshed for IBKR')" class="p-1 text-gray-400 hover:text-white" title="Refresh FIX Session"><i class="fa-solid fa-arrows-rotate"></i></button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-white flex items-center gap-2">
+                                        <i class="fa-solid fa-chart-pie text-amber-400 text-sm"></i>
+                                        CME Direct Gateway
+                                    </td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-300">CME iLink 3 FIX Binary</td>
+                                    <td class="py-3.5 px-4"><span class="bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded font-bold">84 / 100</span></td>
+                                    <td class="py-3.5 px-4 text-amber-400 font-bold">18.2 ms</td>
+                                    <td class="py-3.5 px-4"><span class="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded">P1 (Primary)</span></td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="text-gray-300 bg-white/5 px-1.5 py-0.5 rounded text-[10px]">Commodities</span> <span class="text-gray-300 bg-white/5 px-1.5 py-0.5 rounded text-[10px]">Futures</span></td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-400">US-MIDWEST (Aurora IL)</td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded text-[11px] font-medium">DEGRADED</span></td>
+                                    <td class="py-3.5 px-4 text-right font-sans space-x-1">
+                                        <button onclick="openBrokerDetail('CME Direct Gateway')" class="px-2 py-1 bg-dark-700 hover:bg-white/10 rounded text-xs text-blue-400">Details</button>
+                                        <button onclick="showNotification('Ping 18.2ms over backup line')" class="p-1 text-amber-400 hover:text-amber-300"><i class="fa-solid fa-plug"></i></button>
+                                        <button onclick="showNotification('CME Session Reset')" class="p-1 text-gray-400 hover:text-white"><i class="fa-solid fa-arrows-rotate"></i></button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-white flex items-center gap-2">
+                                        <i class="fa-brands fa-bitcoin text-yellow-400 text-sm"></i>
+                                        Binance Institutional
+                                    </td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-300">REST & WS VIP Private</td>
+                                    <td class="py-3.5 px-4"><span class="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-bold">98 / 100</span></td>
+                                    <td class="py-3.5 px-4 text-emerald-400 font-bold">3.1 ms</td>
+                                    <td class="py-3.5 px-4"><span class="bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded">P2 (Secondary)</span></td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="text-gray-300 bg-white/5 px-1.5 py-0.5 rounded text-[10px]">Crypto Spot</span> <span class="text-gray-300 bg-white/5 px-1.5 py-0.5 rounded text-[10px]">Perpetuals</span></td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-400">AP-EAST (Tokyo TY3)</td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded text-[11px] font-medium">ONLINE</span></td>
+                                    <td class="py-3.5 px-4 text-right font-sans space-x-1">
+                                        <button onclick="openBrokerDetail('Binance Institutional')" class="px-2 py-1 bg-dark-700 hover:bg-white/10 rounded text-xs text-blue-400">Details</button>
+                                        <button onclick="showNotification('Test Ping: 3.12ms')" class="p-1 text-emerald-400 hover:text-emerald-300"><i class="fa-solid fa-plug"></i></button>
+                                        <button onclick="showNotification('Session refreshed')" class="p-1 text-gray-400 hover:text-white"><i class="fa-solid fa-arrows-rotate"></i></button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-white flex items-center gap-2">
+                                        <i class="fa-solid fa-globe text-indigo-400 text-sm"></i>
+                                        LMAX Exchange
+                                    </td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-300">FIX 4.2 Interbank FX</td>
+                                    <td class="py-3.5 px-4"><span class="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-bold">100 / 100</span></td>
+                                    <td class="py-3.5 px-4 text-emerald-400 font-bold">1.2 ms</td>
+                                    <td class="py-3.5 px-4"><span class="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded">P1 (Primary)</span></td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="text-gray-300 bg-white/5 px-1.5 py-0.5 rounded text-[10px]">Spot FX</span> <span class="text-gray-300 bg-white/5 px-1.5 py-0.5 rounded text-[10px]">Precious Metals</span></td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-400">EU-WEST (Equinix LD4)</td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded text-[11px] font-medium">ONLINE</span></td>
+                                    <td class="py-3.5 px-4 text-right font-sans space-x-1">
+                                        <button onclick="openBrokerDetail('LMAX Exchange')" class="px-2 py-1 bg-dark-700 hover:bg-white/10 rounded text-xs text-blue-400">Details</button>
+                                        <button onclick="showNotification('Test Ping: 1.18ms')" class="p-1 text-emerald-400 hover:text-emerald-300"><i class="fa-solid fa-plug"></i></button>
+                                        <button onclick="showNotification('LMAX FIX Session renewed')" class="p-1 text-gray-400 hover:text-white"><i class="fa-solid fa-arrows-rotate"></i></button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 4: STATIC IP MANAGEMENT -->
+            <section id="page-static-ips" class="page-content hidden space-y-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Static IP Management</h1>
+                        <p class="text-xs text-gray-400">Orchestrate whitelisted static gateway IPv4 egress proxies across Equinix cross-connects and cloud availability zones.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="openModal('allocate-ip-modal')" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-lg shadow-indigo-600/20 transition flex items-center gap-2">
+                            <i class="fa-solid fa-plus-circle"></i> Allocate New Static IP Address
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Cards Grid -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Available IPs</div>
+                        <div class="text-2xl font-bold text-emerald-400 font-mono mt-1">16 Pool</div>
+                        <div class="text-[10px] text-gray-400 mt-1">Ready for client binding</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Allocated Active</div>
+                        <div class="text-2xl font-bold text-blue-400 font-mono mt-1">48 Active</div>
+                        <div class="text-[10px] text-gray-400 mt-1">Bound to 24 clients</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Blacklisted / Cooling</div>
+                        <div class="text-2xl font-bold text-rose-400 font-mono mt-1">1 IP</div>
+                        <div class="text-[10px] text-rose-400 mt-1">Auto-quarantined (Anti-DOS)</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Expiring Certs Soon</div>
+                        <div class="text-2xl font-bold text-amber-400 font-mono mt-1">3 IPs</div>
+                        <div class="text-[10px] text-gray-400 mt-1">TLS Cert renewal in &lt;7d</div>
+                    </div>
+                </div>
+
+                <!-- Static IP Table -->
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="p-4 border-b border-white/10 flex justify-between items-center">
+                        <span class="font-semibold text-xs text-white uppercase tracking-wider">Egress IP Subnet Allocations</span>
+                        <div class="flex gap-2">
+                            <button onclick="showNotification('Automatic rotation triggered for 4 IPs')" class="px-2.5 py-1 bg-dark-700 hover:bg-white/10 text-xs text-gray-300 rounded"><i class="fa-solid fa-arrows-spin mr-1"></i> Trigger Batch Rotation</button>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                                <tr>
+                                    <th class="py-3 px-4">Static Egress IPv4</th>
+                                    <th class="py-3 px-4">Region / Datacenter</th>
+                                    <th class="py-3 px-4">Provider</th>
+                                    <th class="py-3 px-4">Assigned Broker Target</th>
+                                    <th class="py-3 px-4">Assigned Client</th>
+                                    <th class="py-3 px-4">Health Check</th>
+                                    <th class="py-3 px-4">Status</th>
+                                    <th class="py-3 px-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-white/5 font-mono text-gray-300">
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3 px-4 text-blue-400 font-bold">198.51.100.42</td>
+                                    <td class="py-3 px-4 font-sans text-gray-300">US-East (Equinix NY4)</td>
+                                    <td class="py-3 px-4 font-sans"><span class="bg-white/5 px-2 py-0.5 rounded text-gray-300">Equinix Direct</span></td>
+                                    <td class="py-3 px-4 font-sans">Interactive Brokers FIX</td>
+                                    <td class="py-3 px-4 font-sans font-semibold text-white">Citadel Securities</td>
+                                    <td class="py-3 px-4"><span class="text-emerald-400">PING OK (0.2ms)</span></td>
+                                    <td class="py-3 px-4 font-sans"><span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-semibold">BOUND</span></td>
+                                    <td class="py-3 px-4 text-right font-sans space-x-1">
+                                        <button onclick="showNotification('IP 198.51.100.42 rotated in 1.4s')" class="px-2 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded text-xs font-medium">Rotate</button>
+                                        <button onclick="openModal('ip-history-modal')" class="p-1 text-gray-400 hover:text-white" title="View History Timeline"><i class="fa-solid fa-clock-rotate-left"></i></button>
+                                        <button onclick="showConfirmDialog('Blacklist IP 198.51.100.42?', ' Quarantines IP address from active pool.')" class="p-1 text-gray-400 hover:text-rose-400" title="Blacklist IP"><i class="fa-solid fa-shield-cat"></i></button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3 px-4 text-blue-400 font-bold">192.0.2.118</td>
+                                    <td class="py-3 px-4 font-sans text-gray-300">EU-West (Equinix LD4)</td>
+                                    <td class="py-3 px-4 font-sans"><span class="bg-white/5 px-2 py-0.5 rounded text-gray-300">AWS Direct Connect</span></td>
+                                    <td class="py-3 px-4 font-sans">LMAX Exchange FX</td>
+                                    <td class="py-3 px-4 font-sans font-semibold text-white">Jump Trading</td>
+                                    <td class="py-3 px-4"><span class="text-emerald-400">PING OK (0.8ms)</span></td>
+                                    <td class="py-3 px-4 font-sans"><span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-semibold">BOUND</span></td>
+                                    <td class="py-3 px-4 text-right font-sans space-x-1">
+                                        <button onclick="showNotification('IP 192.0.2.118 rotated')" class="px-2 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded text-xs font-medium">Rotate</button>
+                                        <button onclick="openModal('ip-history-modal')" class="p-1 text-gray-400 hover:text-white"><i class="fa-solid fa-clock-rotate-left"></i></button>
+                                        <button onclick="showConfirmDialog('Blacklist IP?')" class="p-1 text-gray-400 hover:text-rose-400"><i class="fa-solid fa-shield-cat"></i></button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition bg-red-500/5">
+                                    <td class="py-3 px-4 text-rose-400 font-bold">203.0.113.88</td>
+                                    <td class="py-3 px-4 font-sans text-gray-300">US-Midwest (Aurora)</td>
+                                    <td class="py-3 px-4 font-sans"><span class="bg-white/5 px-2 py-0.5 rounded text-gray-300">GCP Interconnect</span></td>
+                                    <td class="py-3 px-4 font-sans">CME Direct Gateway</td>
+                                    <td class="py-3 px-4 font-sans font-semibold text-white">Jane Street Capital</td>
+                                    <td class="py-3 px-4"><span class="text-rose-400">DROPPED (Anti-DOS)</span></td>
+                                    <td class="py-3 px-4 font-sans"><span class="bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded text-[10px] font-semibold">BLACKLISTED</span></td>
+                                    <td class="py-3 px-4 text-right font-sans space-x-1">
+                                        <button onclick="showNotification('IP un-blacklisted and moved to cooling')" class="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded text-xs font-medium">Release Quarant</button>
+                                        <button onclick="openModal('ip-history-modal')" class="p-1 text-gray-400 hover:text-white"><i class="fa-solid fa-clock-rotate-left"></i></button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 5: INFRASTRUCTURE -->
+            <section id="page-infrastructure" class="page-content hidden space-y-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Infrastructure Lifecycle</h1>
+                        <p class="text-xs text-gray-400">Kubernetes Egress Gateway Pods, Bare-Metal Equinix Servers, and Network Cross-connect topology.</p>
+                    </div>
+                    <button onclick="showNotification('Provisioning new Gateway Pod in NY4...')" class="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold shadow-lg shadow-rose-600/20 transition flex items-center gap-2">
+                        <i class="fa-solid fa-server"></i> Provision Infrastructure Instance
+                    </button>
+                </div>
+
+                <!-- System Load Gauge Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Running Instances</div>
+                        <div class="text-xl font-bold text-white font-mono mt-1">32 Pods</div>
+                        <div class="text-[10px] text-emerald-400 mt-1">0 Stopped</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Avg CPU Usage</div>
+                        <div class="text-xl font-bold text-emerald-400 font-mono mt-1">24.8%</div>
+                        <div class="w-full bg-dark-900 rounded-full h-1.5 mt-2 overflow-hidden"><div class="bg-emerald-500 h-1.5 rounded-full" style="width: 25%"></div></div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Avg RAM Usage</div>
+                        <div class="text-xl font-bold text-blue-400 font-mono mt-1">41.2 GB / 128GB</div>
+                        <div class="w-full bg-dark-900 rounded-full h-1.5 mt-2 overflow-hidden"><div class="bg-blue-500 h-1.5 rounded-full" style="width: 32%"></div></div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Network Throughput</div>
+                        <div class="text-xl font-bold text-cyan-400 font-mono mt-1">4.2 Gbps</div>
+                        <div class="text-[10px] text-gray-400 mt-1">10Gbps Optical Trunk</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">TCP Packet Drop Rate</div>
+                        <div class="text-xl font-bold text-emerald-400 font-mono mt-1">0.0000%</div>
+                        <div class="text-[10px] text-emerald-400 mt-1">Zero Loss</div>
+                    </div>
+                </div>
+
+                <!-- Node Table -->
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="p-4 border-b border-white/10 flex justify-between items-center">
+                        <span class="font-semibold text-xs text-white uppercase tracking-wider">Gateway Worker Nodes</span>
+                        <span class="text-xs font-mono text-gray-400">Cluster: <strong class="text-white">k8s-ny4-prod-cluster-a</strong></span>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                                <tr>
+                                    <th class="py-3 px-4">Instance Node</th>
+                                    <th class="py-3 px-4">Region Datacenter</th>
+                                    <th class="py-3 px-4">CPU Core Load</th>
+                                    <th class="py-3 px-4">RAM Utilized</th>
+                                    <th class="py-3 px-4">Public Gateway IP</th>
+                                    <th class="py-3 px-4">Target Broker Cluster</th>
+                                    <th class="py-3 px-4">Status</th>
+                                    <th class="py-3 px-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-white/5 font-mono text-gray-300">
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-white flex items-center gap-2">
+                                        <i class="fa-solid fa-server text-blue-400"></i>
+                                        gateway-pod-ny4-01
+                                    </td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-300">US-East (Equinix NY4)</td>
+                                    <td class="py-3.5 px-4"><span class="text-emerald-400 font-bold">18% (12 Cores)</span></td>
+                                    <td class="py-3.5 px-4">12.4 GB / 32 GB</td>
+                                    <td class="py-3.5 px-4 text-indigo-400 font-bold">198.51.100.12</td>
+                                    <td class="py-3.5 px-4 font-sans">Interactive Brokers Cluster</td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-semibold">RUNNING</span></td>
+                                    <td class="py-3.5 px-4 text-right font-sans space-x-1">
+                                        <button onclick="showNotification('Restart command sent to gateway-pod-ny4-01')" class="px-2 py-1 bg-dark-700 hover:bg-white/10 text-xs text-gray-300 rounded">Restart</button>
+                                        <button onclick="showConfirmDialog('Destroy Instance node?', 'Pod traffic will be failover routed before termination.')" class="px-2 py-1 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 rounded text-xs">Terminate</button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-white flex items-center gap-2">
+                                        <i class="fa-solid fa-server text-blue-400"></i>
+                                        gateway-pod-ld4-02
+                                    </td>
+                                    <td class="py-3.5 px-4 font-sans text-gray-300">EU-West (Equinix LD4)</td>
+                                    <td class="py-3.5 px-4"><span class="text-emerald-400 font-bold">32% (12 Cores)</span></td>
+                                    <td class="py-3.5 px-4">18.1 GB / 32 GB</td>
+                                    <td class="py-3.5 px-4 text-indigo-400 font-bold">192.0.2.45</td>
+                                    <td class="py-3.5 px-4 font-sans">LMAX & FX Spot Gateway</td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-semibold">RUNNING</span></td>
+                                    <td class="py-3.5 px-4 text-right font-sans space-x-1">
+                                        <button onclick="showNotification('Restart command sent')" class="px-2 py-1 bg-dark-700 hover:bg-white/10 text-xs text-gray-300 rounded">Restart</button>
+                                        <button onclick="showConfirmDialog('Destroy Instance?')" class="px-2 py-1 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 rounded text-xs">Terminate</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 6: ORDERS -->
+            <section id="page-orders" class="page-content hidden space-y-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Order Execution Audit</h1>
+                        <p class="text-xs text-gray-400">High-frequency order routing logs, latency breakdown, and execution replay controls.</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 live-indicator"></span>
+                        <span class="text-xs font-mono text-emerald-400">Live Order Feed Active</span>
+                    </div>
+                </div>
+
+                <!-- Order Filters -->
+                <div class="glass-panel p-4 rounded-xl flex flex-wrap gap-3 items-center justify-between">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <input type="text" placeholder="Filter by Order ID (e.g. ORD-8812)..." class="bg-dark-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-60 font-mono">
+                        <select class="bg-dark-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none">
+                            <option>All Clients</option>
+                            <option>Citadel Securities</option>
+                            <option>Jump Trading</option>
+                            <option>Jane Street</option>
+                        </select>
+                        <select class="bg-dark-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none">
+                            <option>All Brokers</option>
+                            <option>Interactive Brokers</option>
+                            <option>CME Direct</option>
+                            <option>LMAX Exchange</option>
+                        </select>
+                        <select class="bg-dark-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none">
+                            <option>All Statuses</option>
+                            <option>EXECUTED</option>
+                            <option>ROUTED</option>
+                            <option>FAILED</option>
+                        </select>
+                    </div>
+                    <button onclick="showNotification('Filters applied')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold">Apply Filters</button>
+                </div>
+
+                <!-- Orders Table -->
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                                <tr>
+                                    <th class="py-3 px-4">Order ID</th>
+                                    <th class="py-3 px-4">Client Firm</th>
+                                    <th class="py-3 px-4">Broker Route</th>
+                                    <th class="py-3 px-4">Side / Symbol</th>
+                                    <th class="py-3 px-4">Quantity</th>
+                                    <th class="py-3 px-4">Price</th>
+                                    <th class="py-3 px-4">Transit Latency</th>
+                                    <th class="py-3 px-4">Status</th>
+                                    <th class="py-3 px-4">Timestamp</th>
+                                    <th class="py-3 px-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-white/5 font-mono text-gray-300">
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3 px-4 text-blue-400 font-bold">ORD-9941820</td>
+                                    <td class="py-3 px-4 font-sans font-medium text-white">Citadel Securities</td>
+                                    <td class="py-3 px-4 font-sans text-gray-300">Interactive Brokers</td>
+                                    <td class="py-3 px-4"><span class="text-emerald-400 font-bold">BUY</span> <span class="text-white font-sans font-semibold">AAPL</span></td>
+                                    <td class="py-3 px-4">10,000</td>
+                                    <td class="py-3 px-4">$189.45</td>
+                                    <td class="py-3 px-4 text-emerald-400 font-bold">0.84 ms</td>
+                                    <td class="py-3 px-4 font-sans"><span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold">EXECUTED</span></td>
+                                    <td class="py-3 px-4 font-sans text-gray-400 text-[11px]">14:22:01.892</td>
+                                    <td class="py-3 px-4 text-right font-sans">
+                                        <button onclick="openOrderDetail('ORD-9941820')" class="px-2.5 py-1 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded font-medium text-xs">Inspect Timeline</button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3 px-4 text-blue-400 font-bold">ORD-9941819</td>
+                                    <td class="py-3 px-4 font-sans font-medium text-white">Jump Trading</td>
+                                    <td class="py-3 px-4 font-sans text-gray-300">LMAX Exchange</td>
+                                    <td class="py-3 px-4"><span class="text-rose-400 font-bold">SELL</span> <span class="text-white font-sans font-semibold">EUR/USD</span></td>
+                                    <td class="py-3 px-4">2,500,000</td>
+                                    <td class="py-3 px-4">1.08420</td>
+                                    <td class="py-3 px-4 text-emerald-400 font-bold">1.12 ms</td>
+                                    <td class="py-3 px-4 font-sans"><span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold">EXECUTED</span></td>
+                                    <td class="py-3 px-4 font-sans text-gray-400 text-[11px]">14:22:01.710</td>
+                                    <td class="py-3 px-4 text-right font-sans">
+                                        <button onclick="openOrderDetail('ORD-9941819')" class="px-2.5 py-1 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded font-medium text-xs">Inspect Timeline</button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition bg-red-500/5">
+                                    <td class="py-3 px-4 text-rose-400 font-bold">ORD-9941812</td>
+                                    <td class="py-3 px-4 font-sans font-medium text-white">Jane Street</td>
+                                    <td class="py-3 px-4 font-sans text-gray-300">CME Direct Gateway</td>
+                                    <td class="py-3 px-4"><span class="text-emerald-400 font-bold">BUY</span> <span class="text-white font-sans font-semibold">ES_FUT</span></td>
+                                    <td class="py-3 px-4">50</td>
+                                    <td class="py-3 px-4">5,120.25</td>
+                                    <td class="py-3 px-4 text-amber-400 font-bold">18.2 ms</td>
+                                    <td class="py-3 px-4 font-sans"><span class="bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded text-[10px] font-bold">FAILED</span></td>
+                                    <td class="py-3 px-4 font-sans text-gray-400 text-[11px]">14:21:58.012</td>
+                                    <td class="py-3 px-4 text-right font-sans space-x-1">
+                                        <button onclick="openOrderDetail('ORD-9941812')" class="px-2.5 py-1 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded font-medium text-xs">Inspect Timeline</button>
+                                        <button onclick="showNotification('Order ORD-9941812 replayed successfully over backup broker')" class="px-2 py-1 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 rounded text-xs">Replay</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 7: SMART ROUTING -->
+            <section id="page-routing" class="page-content hidden space-y-6">
+                <div>
+                    <h1 class="text-xl font-bold text-white tracking-tight">Smart Order Routing Engine (SOR)</h1>
+                    <p class="text-xs text-gray-400">Deterministic algorithmic engine selecting the optimal broker and egress static IP target in under 200 microseconds.</p>
+                </div>
+
+                <!-- Visual Routing Workflow Flowchart Diagram -->
+                <div class="glass-panel p-6 rounded-xl border-blue-500/20">
+                    <h3 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-diagram-project text-blue-400"></i> Smart Routing Decision Pipeline Architecture
+                    </h3>
+
+                    <div class="grid grid-cols-1 md:grid-cols-5 gap-3 text-center relative">
+                        <!-- Step 1 -->
+                        <div class="bg-dark-800 border border-blue-500/30 rounded-lg p-3 flex flex-col items-center justify-center relative">
+                            <div class="w-8 h-8 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs mb-2">1</div>
+                            <span class="text-xs font-semibold text-white">Incoming Order</span>
+                            <span class="text-[10px] text-gray-400 font-mono mt-1">REST / FIX Gateway</span>
+                        </div>
+                        <!-- Step 2 -->
+                        <div class="bg-dark-800 border border-purple-500/30 rounded-lg p-3 flex flex-col items-center justify-center">
+                            <div class="w-8 h-8 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs mb-2">2</div>
+                            <span class="text-xs font-semibold text-white">Capability Check</span>
+                            <span class="text-[10px] text-gray-400 font-mono mt-1">Asset Class & Rules</span>
+                        </div>
+                        <!-- Step 3 -->
+                        <div class="bg-dark-800 border border-emerald-500/30 rounded-lg p-3 flex flex-col items-center justify-center">
+                            <div class="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs mb-2">3</div>
+                            <span class="text-xs font-semibold text-white">Health & Latency</span>
+                            <span class="text-[10px] text-gray-400 font-mono mt-1">Ping Score & Capacity</span>
+                        </div>
+                        <!-- Step 4 -->
+                        <div class="bg-dark-800 border border-amber-500/30 rounded-lg p-3 flex flex-col items-center justify-center">
+                            <div class="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs mb-2">4</div>
+                            <span class="text-xs font-semibold text-white">IP & Rate Limits</span>
+                            <span class="text-[10px] text-gray-400 font-mono mt-1">Static Egress Selection</span>
+                        </div>
+                        <!-- Step 5 -->
+                        <div class="bg-dark-800 border border-cyan-500/30 rounded-lg p-3 flex flex-col items-center justify-center">
+                            <div class="w-8 h-8 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-xs mb-2">5</div>
+                            <span class="text-xs font-semibold text-white">Final Broker Target</span>
+                            <span class="text-[10px] text-emerald-400 font-mono mt-1">Direct Cross-Connect</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Broker Routing Score Table -->
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="p-4 border-b border-white/10 flex justify-between items-center">
+                        <span class="font-semibold text-xs text-white uppercase tracking-wider">Dynamic Broker Routing Score Matrix</span>
+                        <span class="text-xs text-gray-400 font-mono">Algorithm: <strong class="text-blue-400">Min-Latency-Max-Capacity v4</strong></span>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                                <tr>
+                                    <th class="py-3 px-4">Broker Candidate</th>
+                                    <th class="py-3 px-4">Capabilities Match</th>
+                                    <th class="py-3 px-4">Latency Score</th>
+                                    <th class="py-3 px-4">Quota Availability</th>
+                                    <th class="py-3 px-4">Static IP Lock</th>
+                                    <th class="py-3 px-4">Composite Score</th>
+                                    <th class="py-3 px-4">Selected Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-white/5 font-mono text-gray-300">
+                                <tr class="hover:bg-white/5 transition bg-emerald-500/5">
+                                    <td class="py-3.5 px-4 font-sans font-bold text-white">Interactive Brokers (NY4)</td>
+                                    <td class="py-3.5 px-4 text-emerald-400">100% (MATCH)</td>
+                                    <td class="py-3.5 px-4 text-emerald-400">99.2 (0.8ms)</td>
+                                    <td class="py-3.5 px-4 text-emerald-400">94.0 (82k rps)</td>
+                                    <td class="py-3.5 px-4 text-emerald-400">READY (198.51.100.42)</td>
+                                    <td class="py-3.5 px-4"><span class="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-bold text-sm">98.4 / 100</span></td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold">PRIMARY TARGET</span></td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-gray-200">LMAX Exchange LD4</td>
+                                    <td class="py-3.5 px-4 text-emerald-400">100% (MATCH)</td>
+                                    <td class="py-3.5 px-4 text-emerald-400">96.0 (1.2ms)</td>
+                                    <td class="py-3.5 px-4 text-emerald-400">90.0 (40k rps)</td>
+                                    <td class="py-3.5 px-4 text-emerald-400">READY (192.0.2.118)</td>
+                                    <td class="py-3.5 px-4"><span class="bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded font-bold">94.2 / 100</span></td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded text-[10px]">SECONDARY BACKUP</span></td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition opacity-60">
+                                    <td class="py-3.5 px-4 font-sans text-gray-400">CME Direct Gateway</td>
+                                    <td class="py-3.5 px-4 text-amber-400">75% (PARTIAL)</td>
+                                    <td class="py-3.5 px-4 text-amber-400">62.0 (18.2ms)</td>
+                                    <td class="py-3.5 px-4 text-emerald-400">88.0 (12k rps)</td>
+                                    <td class="py-3.5 px-4 text-rose-400">IP BLACKLISTED</td>
+                                    <td class="py-3.5 px-4"><span class="bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded font-bold">48.0 / 100</span></td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-rose-500/10 text-rose-400 px-2 py-0.5 rounded text-[10px]">BYPASSED</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 8: BROKER HEALTH -->
+            <section id="page-broker-health" class="page-content hidden space-y-6">
+                <div>
+                    <h1 class="text-xl font-bold text-white tracking-tight">Broker Gateway Telemetry & Circuit Breakers</h1>
+                    <p class="text-xs text-gray-400">Real-time ping, timeout circuit breakers, and connection heartbeats across all connected liquidity providers.</p>
+                </div>
+
+                <!-- Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Average Health Score</div>
+                        <div class="text-xl font-bold text-emerald-400 font-mono mt-1">98.2 / 100</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Global Mean Ping</div>
+                        <div class="text-xl font-bold text-blue-400 font-mono mt-1">1.84 ms</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Timeouts (24h)</div>
+                        <div class="text-xl font-bold text-emerald-400 font-mono mt-1">2 Timeouts</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Circuit Breakers Tripped</div>
+                        <div class="text-xl font-bold text-emerald-400 font-mono mt-1">0 Active</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Heartbeat Frequency</div>
+                        <div class="text-xl font-bold text-cyan-400 font-mono mt-1">100 ms</div>
+                    </div>
+                </div>
+
+                <!-- Broker Status Grid Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="glass-panel p-4 rounded-xl border-emerald-500/30">
+                        <div class="flex items-center justify-between pb-3 border-b border-white/10">
+                            <span class="font-bold text-white text-sm">Interactive Brokers</span>
+                            <span class="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-mono text-xs">HEALTHY (100%)</span>
+                        </div>
+                        <div class="mt-3 space-y-2 text-xs font-mono">
+                            <div class="flex justify-between"><span class="text-gray-400">Cross-Connect Latency:</span><span class="text-emerald-400 font-bold">0.8 ms</span></div>
+                            <div class="flex justify-between"><span class="text-gray-400">Active FIX Connections:</span><span class="text-white">42 Sockets</span></div>
+                            <div class="flex justify-between"><span class="text-gray-400">5-Min Errors:</span><span class="text-gray-400">0.00%</span></div>
+                            <div class="flex justify-between"><span class="text-gray-400">Egress Static IP:</span><span class="text-indigo-400">198.51.100.42</span></div>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel p-4 rounded-xl border-amber-500/30">
+                        <div class="flex items-center justify-between pb-3 border-b border-white/10">
+                            <span class="font-bold text-white text-sm">CME Direct Gateway</span>
+                            <span class="bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded font-mono text-xs">DEGRADED (84%)</span>
+                        </div>
+                        <div class="mt-3 space-y-2 text-xs font-mono">
+                            <div class="flex justify-between"><span class="text-gray-400">Cross-Connect Latency:</span><span class="text-amber-400 font-bold">18.2 ms</span></div>
+                            <div class="flex justify-between"><span class="text-gray-400">Active FIX Connections:</span><span class="text-white">18 Sockets</span></div>
+                            <div class="flex justify-between"><span class="text-gray-400">5-Min Errors:</span><span class="text-amber-400">1.24%</span></div>
+                            <div class="flex justify-between"><span class="text-gray-400">Egress Static IP:</span><span class="text-rose-400">203.0.113.88 (Blacklisted)</span></div>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel p-4 rounded-xl border-emerald-500/30">
+                        <div class="flex items-center justify-between pb-3 border-b border-white/10">
+                            <span class="font-bold text-white text-sm">LMAX Exchange</span>
+                            <span class="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-mono text-xs">HEALTHY (100%)</span>
+                        </div>
+                        <div class="mt-3 space-y-2 text-xs font-mono">
+                            <div class="flex justify-between"><span class="text-gray-400">Cross-Connect Latency:</span><span class="text-emerald-400 font-bold">1.2 ms</span></div>
+                            <div class="flex justify-between"><span class="text-gray-400">Active FIX Connections:</span><span class="text-white">28 Sockets</span></div>
+                            <div class="flex justify-between"><span class="text-gray-400">5-Min Errors:</span><span class="text-gray-400">0.00%</span></div>
+                            <div class="flex justify-between"><span class="text-gray-400">Egress Static IP:</span><span class="text-indigo-400">192.0.2.118</span></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 9: SESSION MANAGEMENT -->
+            <section id="page-sessions" class="page-content hidden space-y-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Active Session Management</h1>
+                        <p class="text-xs text-gray-400">FIX protocol session state, OAuth2 / Bearer JWT tokens, sequence numbers, and active websocket drops.</p>
+                    </div>
+                    <button onclick="showNotification('Refreshed all 148 active broker sessions')" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-lg shadow-blue-600/20 transition">
+                        <i class="fa-solid fa-rotate mr-1"></i> Refresh All Active Sessions
+                    </button>
+                </div>
+
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                                <tr>
+                                    <th class="py-3 px-4">Broker Gateway</th>
+                                    <th class="py-3 px-4">Session Key / TargetCompID</th>
+                                    <th class="py-3 px-4">Active Access Token (Preview)</th>
+                                    <th class="py-3 px-4">Expires In</th>
+                                    <th class="py-3 px-4">Seq Num (In/Out)</th>
+                                    <th class="py-3 px-4">Status</th>
+                                    <th class="py-3 px-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-white/5 font-mono text-gray-300">
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-bold text-white">Interactive Brokers</td>
+                                    <td class="py-3.5 px-4 text-blue-400">IBKR-NY4-FIX01</td>
+                                    <td class="py-3.5 px-4 text-gray-400">eyJhbGciOiJIUzI1Ni...48a29e</td>
+                                    <td class="py-3.5 px-4 text-emerald-400 font-bold">58m 12s</td>
+                                    <td class="py-3.5 px-4">812,940 / 812,941</td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold">AUTHENTICATED</span></td>
+                                    <td class="py-3.5 px-4 text-right font-sans space-x-1">
+                                        <button onclick="showNotification('Token manually renewed for IBKR')" class="px-2 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded text-xs">Refresh</button>
+                                        <button onclick="showConfirmDialog('Revoke session key?', 'Disconnects FIX session.')" class="px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded text-xs">Revoke</button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-bold text-white">Binance Institutional</td>
+                                    <td class="py-3.5 px-4 text-blue-400">BIN-VIP-WS-09</td>
+                                    <td class="py-3.5 px-4 text-gray-400">binance_sec_key_...81f9a2</td>
+                                    <td class="py-3.5 px-4 text-amber-400 font-bold">04m 10s</td>
+                                    <td class="py-3.5 px-4">4,120,891 / 4,120,891</td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold">AUTHENTICATED</span></td>
+                                    <td class="py-3.5 px-4 text-right font-sans space-x-1">
+                                        <button onclick="showNotification('Token manually renewed')" class="px-2 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded text-xs">Refresh</button>
+                                        <button onclick="showConfirmDialog('Revoke session key?')" class="px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded text-xs">Revoke</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 10: RATE LIMITS -->
+            <section id="page-rate-limits" class="page-content hidden space-y-6">
+                <div>
+                    <h1 class="text-xl font-bold text-white tracking-tight">Broker Rate Limit Allocations</h1>
+                    <p class="text-xs text-gray-400">Token-bucket rate limiters preventing API ban throttles across external liquidity provider endpoints.</p>
+                </div>
+
+                <!-- Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Remaining Global Requests</div>
+                        <div class="text-xl font-bold text-emerald-400 font-mono mt-1">182,400 / sec</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Active Queue Depth</div>
+                        <div class="text-xl font-bold text-blue-400 font-mono mt-1">12 msgs</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Blocked / Throttled (24h)</div>
+                        <div class="text-xl font-bold text-amber-400 font-mono mt-1">14 requests</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Token Bucket Reset Timer</div>
+                        <div class="text-xl font-bold text-cyan-400 font-mono mt-1">480 ms</div>
+                    </div>
+                </div>
+
+                <!-- Table -->
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="p-4 border-b border-white/10 font-semibold text-xs text-white uppercase tracking-wider">Broker Rate Limit Bucket Capacity</div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                                <tr>
+                                    <th class="py-3 px-4">Broker Gateway</th>
+                                    <th class="py-3 px-4">Configured Limit</th>
+                                    <th class="py-3 px-4">Remaining Tokens</th>
+                                    <th class="py-3 px-4">Utilization Gauge</th>
+                                    <th class="py-3 px-4">Queued Requests</th>
+                                    <th class="py-3 px-4">Reset Interval</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-white/5 font-mono text-gray-300">
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-bold text-white">Interactive Brokers</td>
+                                    <td class="py-3.5 px-4">100,000 req/sec</td>
+                                    <td class="py-3.5 px-4 text-emerald-400 font-bold">84,210 req</td>
+                                    <td class="py-3.5 px-4 font-sans w-48">
+                                        <div class="w-full bg-dark-900 rounded-full h-2 overflow-hidden"><div class="bg-emerald-500 h-2 rounded-full" style="width: 16%"></div></div>
+                                    </td>
+                                    <td class="py-3.5 px-4">0 req</td>
+                                    <td class="py-3.5 px-4 text-gray-400">100 ms</td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans font-bold text-white">Binance VIP Private</td>
+                                    <td class="py-3.5 px-4">50,000 req/sec</td>
+                                    <td class="py-3.5 px-4 text-amber-400 font-bold">4,120 req</td>
+                                    <td class="py-3.5 px-4 font-sans w-48">
+                                        <div class="w-full bg-dark-900 rounded-full h-2 overflow-hidden"><div class="bg-amber-500 h-2 rounded-full" style="width: 92%"></div></div>
+                                    </td>
+                                    <td class="py-3.5 px-4 text-amber-400 font-bold">12 req</td>
+                                    <td class="py-3.5 px-4 text-gray-400">1000 ms</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 11: EVENT BUS -->
+            <section id="page-events" class="page-content hidden space-y-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h1 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                            Kafka & EventBridge Stream
+                            <span class="w-2 h-2 rounded-full bg-teal-400 live-indicator"></span>
+                        </h1>
+                        <p class="text-xs text-gray-400">Real-time system event publishing pipeline for order transitions, IP rotations, and failovers.</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="toggleEventStreamPause()" id="pause-stream-btn" class="px-3 py-1.5 bg-dark-800 border border-white/10 rounded text-xs text-gray-300 hover:text-white">
+                            <i class="fa-solid fa-pause mr-1"></i> Pause Live Ticker
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Published Events / sec</div>
+                        <div class="text-xl font-bold text-teal-400 font-mono mt-1">12,480 / sec</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Total Events Today</div>
+                        <div class="text-xl font-bold text-white font-mono mt-1">841,209,102</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Failed Publish Retries</div>
+                        <div class="text-xl font-bold text-emerald-400 font-mono mt-1">0 msgs</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <div class="text-xs text-gray-400">Kafka Lag</div>
+                        <div class="text-xl font-bold text-cyan-400 font-mono mt-1">0.12 ms</div>
+                    </div>
+                </div>
+
+                <!-- Event Log Stream -->
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="p-3 border-b border-white/10 bg-dark-800 flex justify-between items-center text-xs">
+                        <span class="font-mono text-gray-400"><i class="fa-solid fa-terminal mr-1.5 text-teal-400"></i> Event Stream: <strong class="text-white">broker.events.v1</strong></span>
+                        <span class="text-gray-500 font-mono">Auto-scroll Active</span>
+                    </div>
+                    <div id="event-stream-container" class="h-96 overflow-y-auto p-4 code-block text-xs space-y-2 font-mono">
+                        <div class="text-gray-400"><span class="text-gray-600">[14:22:05.102]</span> <span class="text-teal-400">topic:broker.route</span> <span class="text-white">ORD-9941820 routed to IBKR via Static IP 198.51.100.42</span> (latency: 0.84ms)</div>
+                        <div class="text-gray-400"><span class="text-gray-600">[14:22:04.890]</span> <span class="text-blue-400">topic:session.heartbeat</span> <span class="text-white">FIX Session IBKR-NY4-FIX01 ACK HeartBeat (seq_in: 812940)</span></div>
+                        <div class="text-gray-400"><span class="text-gray-600">[14:22:03.112]</span> <span class="text-purple-400">topic:staticip.check</span> <span class="text-white">Static IP 192.0.2.118 health check response 200 OK</span></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 12: MONITORING -->
+            <section id="page-monitoring" class="page-content hidden space-y-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Grafana-Style System Infrastructure Telemetry</h1>
+                        <p class="text-xs text-gray-400">Kubernetes nodes, Redis session caches, Postgres execution logs, Kafka clusters, and API gateways.</p>
+                    </div>
+                    <span class="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded border border-emerald-500/20">Datadog Sync: ACTIVE</span>
+                </div>
+
+                <!-- Cluster Stat Cards Grid -->
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 font-mono text-xs">
+                    <div class="glass-panel p-3 rounded-xl border-emerald-500/20">
+                        <div class="text-[10px] text-gray-400">CPU Load</div>
+                        <div class="text-base font-bold text-emerald-400 mt-1">24.8%</div>
+                    </div>
+                    <div class="glass-panel p-3 rounded-xl border-blue-500/20">
+                        <div class="text-[10px] text-gray-400">Memory</div>
+                        <div class="text-base font-bold text-blue-400 mt-1">32.1%</div>
+                    </div>
+                    <div class="glass-panel p-3 rounded-xl border-purple-500/20">
+                        <div class="text-[10px] text-gray-400">Redis Cache</div>
+                        <div class="text-base font-bold text-purple-400 mt-1">0.14 ms</div>
+                    </div>
+                    <div class="glass-panel p-3 rounded-xl border-indigo-500/20">
+                        <div class="text-[10px] text-gray-400">Postgres DB</div>
+                        <div class="text-base font-bold text-indigo-400 mt-1">1.2 ms</div>
+                    </div>
+                    <div class="glass-panel p-3 rounded-xl border-teal-500/20">
+                        <div class="text-[10px] text-gray-400">Kafka Bus</div>
+                        <div class="text-base font-bold text-teal-400 mt-1">0 Lag</div>
+                    </div>
+                    <div class="glass-panel p-3 rounded-xl border-amber-500/20">
+                        <div class="text-[10px] text-gray-400">API Gateway</div>
+                        <div class="text-base font-bold text-amber-400 mt-1">24k rps</div>
+                    </div>
+                    <div class="glass-panel p-3 rounded-xl border-cyan-500/20">
+                        <div class="text-[10px] text-gray-400">Worker Pool</div>
+                        <div class="text-base font-bold text-cyan-400 mt-1">100% OK</div>
+                    </div>
+                </div>
+
+                <!-- Telemetry Charts -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass-panel p-5 rounded-xl">
+                        <h3 class="text-sm font-semibold text-white mb-3">API Requests / sec & Error Rate</h3>
+                        <div class="h-64"><canvas id="chart-requests-errors"></canvas></div>
+                    </div>
+                    <div class="glass-panel p-5 rounded-xl">
+                        <h3 class="text-sm font-semibold text-white mb-3">Gateway Internal Latency Percentiles (p50, p99)</h3>
+                        <div class="h-64"><canvas id="chart-latency-percentiles"></canvas></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 13: AUDIT LOGS -->
+            <section id="page-audit-logs" class="page-content hidden space-y-6">
+                <div>
+                    <h1 class="text-xl font-bold text-white tracking-tight">SOC2 Compliance Audit Trail</h1>
+                    <p class="text-xs text-gray-400">Immutable governance logs of admin actions, IP rotations, key generation, and configuration reloads.</p>
+                </div>
+
+                <div class="glass-panel p-4 rounded-xl flex flex-wrap gap-3 items-center justify-between">
+                    <input type="text" placeholder="Search audit trail by user, IP or action..." class="bg-dark-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-72">
+                    <button onclick="showNotification('Audit log CSV exported')" class="px-3 py-1.5 bg-dark-700 hover:bg-white/10 text-xs text-gray-300 rounded"><i class="fa-solid fa-download mr-1"></i> Export Audit Log (CSV)</button>
+                </div>
+
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                                <tr>
+                                    <th class="py-3 px-4">Timestamp</th>
+                                    <th class="py-3 px-4">User / Operator</th>
+                                    <th class="py-3 px-4">Action Admin Event</th>
+                                    <th class="py-3 px-4">Entity Modified</th>
+                                    <th class="py-3 px-4">Result Status</th>
+                                    <th class="py-3 px-4">Operator IP Address</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-white/5 font-mono text-gray-300">
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans text-gray-400 text-[11px]">2026-07-23 14:18:02</td>
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-white">admin@brokerbridge.io</td>
+                                    <td class="py-3.5 px-4 text-blue-400 font-bold">STATIC_IP_ROTATE</td>
+                                    <td class="py-3.5 px-4 font-sans">IP: 198.51.100.42</td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold">SUCCESS</span></td>
+                                    <td class="py-3.5 px-4 text-gray-400">10.0.42.12</td>
+                                </tr>
+                                <tr class="hover:bg-white/5 transition">
+                                    <td class="py-3.5 px-4 font-sans text-gray-400 text-[11px]">2026-07-23 13:45:12</td>
+                                    <td class="py-3.5 px-4 font-sans font-semibold text-white">secops@brokerbridge.io</td>
+                                    <td class="py-3.5 px-4 text-purple-400 font-bold">API_KEY_ROTATE</td>
+                                    <td class="py-3.5 px-4 font-sans">Key: Citadel_Prod_01</td>
+                                    <td class="py-3.5 px-4 font-sans"><span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold">SUCCESS</span></td>
+                                    <td class="py-3.5 px-4 text-gray-400">10.0.18.99</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 14: RUNTIME CONFIG -->
+            <section id="page-config" class="page-content hidden space-y-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Runtime Dynamic Configuration</h1>
+                        <p class="text-xs text-gray-400">Hot-reload system parameters, routing rules, and feature flags without restarting gateway pods.</p>
+                    </div>
+                    <div class="flex items-center space-x-3 bg-dark-800 border border-white/10 px-3 py-1.5 rounded-lg">
+                        <span class="text-xs font-medium text-gray-300">Hot-Reload Toggle:</span>
+                        <button id="hot-reload-toggle" onclick="toggleHotReload()" class="w-10 h-5 bg-blue-600 rounded-full transition relative p-0.5">
+                            <div class="w-4 h-4 bg-white rounded-full ml-auto shadow"></div>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="glass-panel p-5 rounded-xl space-y-4">
+                        <h3 class="text-sm font-semibold text-white border-b border-white/10 pb-2">Routing Rules & Failover Thresholds</h3>
+                        <div class="space-y-3 text-xs">
+                            <div>
+                                <label class="text-gray-300 block mb-1">Max Broker Ping Circuit Breaker Threshold (ms)</label>
+                                <input type="number" value="25" class="w-full bg-dark-900 border border-white/10 rounded px-3 py-1.5 text-white font-mono">
+                            </div>
+                            <div>
+                                <label class="text-gray-300 block mb-1">Static IP Pool Quota High Watermark (%)</label>
+                                <input type="number" value="85" class="w-full bg-dark-900 border border-white/10 rounded px-3 py-1.5 text-white font-mono">
+                            </div>
+                            <div>
+                                <label class="text-gray-300 block mb-1">Default Order Timeout Multiplier</label>
+                                <input type="text" value="1.5x" class="w-full bg-dark-900 border border-white/10 rounded px-3 py-1.5 text-white font-mono">
+                            </div>
+                        </div>
+                        <button onclick="showNotification('Runtime configuration hot-applied across 32 gateway pods')" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold">
+                            Apply Configuration Hot-Reload
+                        </button>
+                    </div>
+
+                    <div class="glass-panel p-5 rounded-xl space-y-4">
+                        <h3 class="text-sm font-semibold text-white border-b border-white/10 pb-2">Feature Flags Matrix</h3>
+                        <div class="space-y-3 text-xs">
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-200">Auto Static IP Failover Rotation</span>
+                                <span class="bg-emerald-500/20 text-emerald-400 font-mono px-2 py-0.5 rounded text-[10px]">ENABLED</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-200">Zero-Copy FIX Binary Framing</span>
+                                <span class="bg-emerald-500/20 text-emerald-400 font-mono px-2 py-0.5 rounded text-[10px]">ENABLED</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-200">Rate Limit Backpressure Queue Bypass</span>
+                                <span class="bg-rose-500/20 text-rose-400 font-mono px-2 py-0.5 rounded text-[10px]">DISABLED</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 15: FAILURE SIMULATOR -->
+            <section id="page-simulator" class="page-content hidden space-y-6">
+                <div class="bg-gradient-to-r from-red-900/30 via-dark-800 to-dark-800 border border-red-500/30 p-5 rounded-xl">
+                    <h1 class="text-xl font-bold text-red-400 tracking-tight flex items-center gap-2">
+                        <i class="fa-solid fa-triangle-exclamation"></i> Chaos Engineering & Failure Injection Console
+                    </h1>
+                    <p class="text-xs text-gray-300 mt-1">Simulate real-world network partition, static IP drops, broker timeouts, and cache outages to test system failover resiliency.</p>
+                </div>
+
+                <!-- Chaos Trigger Buttons -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <button onclick="runChaosSimulation('broker-timeout')" class="p-3 bg-dark-800 border border-red-500/30 hover:border-red-500 rounded-xl text-left transition group">
+                        <div class="text-red-400 font-semibold text-xs flex items-center gap-2">
+                            <i class="fa-solid fa-clock-rotate-left"></i> Broker Timeout
+                        </div>
+                        <p class="text-[10px] text-gray-400 mt-1">Inject 500ms delay to CME Gateway</p>
+                    </button>
+
+                    <button onclick="runChaosSimulation('redis-down')" class="p-3 bg-dark-800 border border-red-500/30 hover:border-red-500 rounded-xl text-left transition group">
+                        <div class="text-red-400 font-semibold text-xs flex items-center gap-2">
+                            <i class="fa-solid fa-database"></i> Redis Cluster Down
+                        </div>
+                        <p class="text-[10px] text-gray-400 mt-1">Trigger session cache fallback</p>
+                    </button>
+
+                    <button onclick="runChaosSimulation('ip-blacklist')" class="p-3 bg-dark-800 border border-red-500/30 hover:border-red-500 rounded-xl text-left transition group">
+                        <div class="text-red-400 font-semibold text-xs flex items-center gap-2">
+                            <i class="fa-solid fa-shield-virus"></i> IP Blacklisted
+                        </div>
+                        <p class="text-[10px] text-gray-400 mt-1">Quarantine active egress IP</p>
+                    </button>
+
+                    <button onclick="runChaosSimulation('kafka-lag')" class="p-3 bg-dark-800 border border-red-500/30 hover:border-red-500 rounded-xl text-left transition group">
+                        <div class="text-red-400 font-semibold text-xs flex items-center gap-2">
+                            <i class="fa-solid fa-stream"></i> Kafka Lag Spike
+                        </div>
+                        <p class="text-[10px] text-gray-400 mt-1">Fill event partition buffer</p>
+                    </button>
+                </div>
+
+                <!-- Simulation Output Console -->
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="p-3 bg-dark-800 border-b border-white/10 flex justify-between items-center text-xs">
+                        <span class="font-mono text-gray-300 font-bold"><i class="fa-solid fa-terminal text-red-400 mr-2"></i> Failure Workflow Output Log</span>
+                        <button onclick="clearChaosConsole()" class="text-[11px] text-gray-400 hover:text-white">Clear Console</button>
+                    </div>
+                    <div id="chaos-console" class="p-4 h-64 overflow-y-auto code-block text-xs font-mono space-y-1.5 text-gray-300">
+                        <div class="text-gray-500">[SYSTEM READY] Select a failure trigger above to test orchestration response...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 16: SECURITY -->
+            <section id="page-security" class="page-content hidden space-y-6">
+                <div>
+                    <h1 class="text-xl font-bold text-white tracking-tight">Security, Keys & RBAC Vault</h1>
+                    <p class="text-xs text-gray-400">HMAC signature secrets, API tokens, JWT rotation, and role-based access rules.</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="glass-panel p-5 rounded-xl space-y-4">
+                        <h3 class="text-sm font-semibold text-white border-b border-white/10 pb-2">Active HMAC Signing Secrets</h3>
+                        <div class="space-y-3 font-mono text-xs">
+                            <div class="flex justify-between items-center p-2.5 bg-dark-900 rounded border border-white/5">
+                                <div>
+                                    <div class="text-white font-sans font-semibold">Citadel Institutional HMAC Key</div>
+                                    <div class="text-gray-500 text-[10px]">hmac_secret_ny4_9812...</div>
+                                </div>
+                                <button onclick="showNotification('HMAC key rotated')" class="px-2.5 py-1 bg-blue-500/10 text-blue-400 text-xs font-sans rounded">Rotate Key</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel p-5 rounded-xl space-y-4">
+                        <h3 class="text-sm font-semibold text-white border-b border-white/10 pb-2">RBAC Privileges Matrix</h3>
+                        <div class="text-xs space-y-2">
+                            <div class="flex justify-between text-gray-300"><span>Platform Admin</span><span class="text-emerald-400 font-mono">Full Gateway Control</span></div>
+                            <div class="flex justify-between text-gray-300"><span>SecOps Operator</span><span class="text-blue-400 font-mono">IP & Key Management</span></div>
+                            <div class="flex justify-between text-gray-300"><span>DevOps Read-Only</span><span class="text-gray-400 font-mono">Telemetry & Logs Only</span></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 17: MONITORING APIS -->
+            <section id="page-monitoring-apis" class="page-content hidden space-y-6">
+                <div>
+                    <h1 class="text-xl font-bold text-white tracking-tight">Platform Monitoring APIs & Interactive Explorer</h1>
+                    <p class="text-xs text-gray-400">Test internal telemetry endpoints for Prometheus, Datadog, and custom health probes.</p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="glass-panel p-4 rounded-xl space-y-2">
+                        <span class="text-xs font-semibold text-white uppercase tracking-wider block mb-2">Available Endpoints</span>
+                        <button onclick="testApiEndpoint('/health')" class="w-full text-left p-2.5 bg-dark-900 hover:bg-white/5 rounded border border-white/5 flex items-center justify-between font-mono text-xs">
+                            <span class="text-emerald-400 font-bold">GET /health</span>
+                            <span class="text-gray-400 text-[10px]">System probe</span>
+                        </button>
+                        <button onclick="testApiEndpoint('/metrics')" class="w-full text-left p-2.5 bg-dark-900 hover:bg-white/5 rounded border border-white/5 flex items-center justify-between font-mono text-xs">
+                            <span class="text-blue-400 font-bold">GET /metrics</span>
+                            <span class="text-gray-400 text-[10px]">Prometheus format</span>
+                        </button>
+                        <button onclick="testApiEndpoint('/broker-health')" class="w-full text-left p-2.5 bg-dark-900 hover:bg-white/5 rounded border border-white/5 flex items-center justify-between font-mono text-xs">
+                            <span class="text-purple-400 font-bold">GET /broker-health</span>
+                            <span class="text-gray-400 text-[10px]">FIX status</span>
+                        </button>
+                        <button onclick="testApiEndpoint('/ip-health')" class="w-full text-left p-2.5 bg-dark-900 hover:bg-white/5 rounded border border-white/5 flex items-center justify-between font-mono text-xs">
+                            <span class="text-cyan-400 font-bold">GET /ip-health</span>
+                            <span class="text-gray-400 text-[10px]">Static IPv4 state</span>
+                        </button>
+                    </div>
+
+                    <div class="glass-panel p-5 rounded-xl lg:col-span-2">
+                        <div class="flex justify-between items-center mb-3">
+                            <span id="api-endpoint-title" class="font-mono text-xs font-bold text-white">GET /health</span>
+                            <span class="text-[10px] text-emerald-400 font-mono">200 OK (0.42ms)</span>
+                        </div>
+                        <pre id="api-response-code" class="code-block p-4 rounded text-xs text-emerald-400 overflow-x-auto h-72">{
+  "status": "HEALTHY",
+  "gateway_cluster": "k8s-ny4-prod-01",
+  "timestamp": "2026-07-23T14:22:10Z",
+  "active_brokers": 12,
+  "healthy_brokers": 11,
+  "allocated_static_ips": 48
+}</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGE 18: SETTINGS -->
+            <section id="page-settings" class="page-content hidden space-y-6">
+                <div>
+                    <h1 class="text-xl font-bold text-white tracking-tight">Platform Global Settings</h1>
+                    <p class="text-xs text-gray-400">Environment configurations, webhook notifications, and cluster version details.</p>
+                </div>
+
+                <div class="glass-panel p-6 rounded-xl space-y-6 max-w-3xl">
+                    <div class="space-y-4">
+                        <h3 class="text-sm font-semibold text-white border-b border-white/10 pb-2">Notification Webhooks</h3>
+                        <div>
+                            <label class="text-xs text-gray-300 block mb-1">PagerDuty Alert Webhook URL</label>
+                            <input type="text" value="https://events.pagerduty.com/v2/enqueue?integration_key=bb_prod_991" class="w-full bg-dark-900 border border-white/10 rounded px-3 py-2 text-xs text-white font-mono">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-300 block mb-1">Slack Incident Channel Webhook</label>
+                            <input type="text" value="https://hooks.slack.com/services/T00/B00/XXXXXX" class="w-full bg-dark-900 border border-white/10 rounded px-3 py-2 text-xs text-white font-mono">
+                        </div>
+                    </div>
+
+                    <div class="pt-4 border-t border-white/10 flex justify-between items-center text-xs text-gray-400">
+                        <span>BrokerBridge Platform Core Version</span>
+                        <span class="font-mono text-white">v3.18.4-RELEASE (Build #9812)</span>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- MODAL 1: Create Client -->
+    <div id="create-client-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-bg">
+        <div class="bg-dark-700 border border-white/10 rounded-xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+            <div class="flex justify-between items-center border-b border-white/10 pb-3">
+                <h3 class="font-bold text-white text-base">Onboard Institutional Client</h3>
+                <button onclick="closeModal('create-client-modal')" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="text-gray-300 block mb-1">Client Legal Name</label>
+                    <input type="text" placeholder="e.g. Optiver US LLC" class="w-full bg-dark-900 border border-white/10 rounded p-2 text-white">
+                </div>
+                <div>
+                    <label class="text-gray-300 block mb-1">Subscription Tier Quota</label>
+                    <select class="w-full bg-dark-900 border border-white/10 rounded p-2 text-white">
+                        <option>Ultra-HFT Enterprise (100k rps)</option>
+                        <option>Market Maker Prime (50k rps)</option>
+                        <option>Standard Institutional (10k rps)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-gray-300 block mb-1">Static IP Allocation Pool Count</label>
+                    <input type="number" value="4" class="w-full bg-dark-900 border border-white/10 rounded p-2 text-white font-mono">
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-3 border-t border-white/10">
+                <button onclick="closeModal('create-client-modal')" class="px-4 py-2 bg-dark-800 text-gray-300 hover:bg-white/5 rounded text-xs font-semibold">Cancel</button>
+                <button onclick="showNotification('Client onboarded successfully!'); closeModal('create-client-modal');" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold">Create Client</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: Add Broker -->
+    <div id="add-broker-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-bg">
+        <div class="bg-dark-700 border border-white/10 rounded-xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+            <div class="flex justify-between items-center border-b border-white/10 pb-3">
+                <h3 class="font-bold text-white text-base">Connect New Broker Gateway Target</h3>
+                <button onclick="closeModal('add-broker-modal')" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="text-gray-300 block mb-1">Broker Identifier</label>
+                    <input type="text" placeholder="e.g. Goldman Sachs Execution Gateway" class="w-full bg-dark-900 border border-white/10 rounded p-2 text-white">
+                </div>
+                <div>
+                    <label class="text-gray-300 block mb-1">Protocol Type</label>
+                    <select class="w-full bg-dark-900 border border-white/10 rounded p-2 text-white">
+                        <option>FIX 4.4 / FIX 5.0 SP2</option>
+                        <option>REST / WebSocket VIP API</option>
+                        <option>Binary Native Protocol</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-3 border-t border-white/10">
+                <button onclick="closeModal('add-broker-modal')" class="px-4 py-2 bg-dark-800 text-gray-300 rounded text-xs">Cancel</button>
+                <button onclick="showNotification('Broker Gateway connected'); closeModal('add-broker-modal');" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold">Connect Broker</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 3: Allocate IP -->
+    <div id="allocate-ip-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-bg">
+        <div class="bg-dark-700 border border-white/10 rounded-xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+            <div class="flex justify-between items-center border-b border-white/10 pb-3">
+                <h3 class="font-bold text-white text-base">Allocate Static IPv4 Egress Proxy</h3>
+                <button onclick="closeModal('allocate-ip-modal')" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="text-gray-300 block mb-1">Target Datacenter Cross-Connect Region</label>
+                    <select class="w-full bg-dark-900 border border-white/10 rounded p-2 text-white">
+                        <option>US-East (Equinix NY4)</option>
+                        <option>EU-West (Equinix LD4)</option>
+                        <option>AP-East (Tokyo TY3)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-3 border-t border-white/10">
+                <button onclick="closeModal('allocate-ip-modal')" class="px-4 py-2 bg-dark-800 text-gray-300 rounded text-xs">Cancel</button>
+                <button onclick="showNotification('Static IP Allocated: 198.51.100.99'); closeModal('allocate-ip-modal');" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold">Allocate Address</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 4: Order Timeline Drawer/Modal -->
+    <div id="order-detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-bg">
+        <div class="bg-dark-700 border border-white/10 rounded-xl w-full max-w-xl p-6 shadow-2xl space-y-4">
+            <div class="flex justify-between items-center border-b border-white/10 pb-3">
+                <h3 class="font-bold text-white text-base flex items-center gap-2">
+                    <i class="fa-solid fa-microchip text-blue-400"></i> Order Transit Execution Flow: <span id="modal-order-id" class="font-mono text-blue-400">ORD-9941820</span>
+                </h3>
+                <button onclick="closeModal('order-detail-modal')" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="space-y-3 text-xs font-mono">
+                <div class="p-3 bg-dark-900 rounded border border-white/5 space-y-2">
+                    <div class="flex justify-between text-emerald-400"><span class="font-sans font-semibold">1. Order Received:</span> <span>14:22:01.890 (+0.00ms)</span></div>
+                    <div class="flex justify-between text-emerald-400"><span class="font-sans font-semibold">2. HMAC Validated:</span> <span>14:22:01.890 (+0.02ms)</span></div>
+                    <div class="flex justify-between text-emerald-400"><span class="font-sans font-semibold">3. Smart Routed (IBKR Target):</span> <span>14:22:01.891 (+0.12ms)</span></div>
+                    <div class="flex justify-between text-emerald-400"><span class="font-sans font-semibold">4. Egress Static IP Bound (198.51.100.42):</span> <span>14:22:01.891 (+0.14ms)</span></div>
+                    <div class="flex justify-between text-emerald-400"><span class="font-sans font-semibold">5. Executed by Broker:</span> <span>14:22:01.892 (+0.84ms)</span></div>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button onclick="closeModal('order-detail-modal')" class="px-4 py-2 bg-dark-800 text-gray-300 rounded text-xs">Close Audit Log</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CLIENT DETAILS DRAWER (Slide-Over) -->
+    <div id="client-drawer" class="fixed inset-y-0 right-0 w-96 bg-dark-800 border-l border-white/10 z-50 drawer drawer-closed shadow-2xl p-6 flex flex-col justify-between">
+        <div class="space-y-5 overflow-y-auto">
+            <div class="flex justify-between items-center border-b border-white/10 pb-3">
+                <h3 id="drawer-client-name" class="font-bold text-white text-base">Client Details</h3>
+                <button onclick="closeClientDrawer()" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="space-y-4 text-xs font-mono">
+                <div>
+                    <span class="text-gray-400 font-sans block">Assigned Dedicated IPs:</span>
+                    <p class="text-indigo-400 font-bold mt-1">198.51.100.42, 198.51.100.43, 192.0.2.12</p>
+                </div>
+                <div>
+                    <span class="text-gray-400 font-sans block">Broker Connections Allowed:</span>
+                    <p class="text-white mt-1">IBKR, CME Direct, LMAX, Coinbase Prime</p>
+                </div>
+                <div>
+                    <span class="text-gray-400 font-sans block">API Rate Quota Limit:</span>
+                    <p class="text-emerald-400 font-bold mt-1">100,000 requests / sec</p>
+                </div>
+            </div>
+        </div>
+        <div class="border-t border-white/10 pt-4">
+            <button onclick="closeClientDrawer()" class="w-full py-2 bg-dark-700 hover:bg-white/10 text-white rounded text-xs font-semibold">Close Drawer</button>
+        </div>
+    </div>
+
+    <!-- GENERIC CONFIRMATION DIALOG -->
+    <div id="confirm-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-bg">
+        <div class="bg-dark-700 border border-white/10 rounded-xl w-full max-w-sm p-6 shadow-2xl space-y-4 text-center">
+            <div class="w-12 h-12 rounded-full bg-rose-500/20 text-rose-400 mx-auto flex items-center justify-center text-xl">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <div>
+                <h3 id="confirm-modal-title" class="font-bold text-white text-base">Confirm Action</h3>
+                <p id="confirm-modal-desc" class="text-xs text-gray-300 mt-1">Are you sure you want to perform this operation?</p>
+            </div>
+            <div class="flex gap-2 pt-2">
+                <button onclick="closeModal('confirm-modal')" class="flex-1 py-2 bg-dark-800 text-gray-300 rounded text-xs font-semibold">Cancel</button>
+                <button onclick="executeConfirmedAction()" class="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded text-xs font-semibold">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST NOTIFICATION CONTAINER -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
+
+    <script>
+        /* PAGE NAVIGATION ROUTER */
+        function navigateTo(pageId) {
+            document.querySelectorAll('.page-content').forEach(el => el.classList.add('hidden'));
+            const targetPage = document.getElementById('page-' + pageId);
+            if (targetPage) {
+                targetPage.classList.remove('hidden');
+            }
+
+            document.querySelectorAll('.nav-item').forEach(el => {
+                if (el.getAttribute('data-page') === pageId) {
+                    el.classList.add('bg-white/10', 'text-white');
+                    el.classList.remove('text-gray-400');
+                } else {
+                    el.classList.remove('bg-white/10', 'text-white');
+                    el.classList.add('text-gray-400');
+                }
+            });
+
+            const breadcrumb = document.getElementById('breadcrumb-current');
+            if (breadcrumb) {
+                breadcrumb.textContent = pageId.replace('-', ' ');
+            }
+        }
+
+        /* SIDEBAR TOGGLE */
+        const sidebar = document.getElementById('sidebar');
+        const toggleBtn = document.getElementById('toggle-sidebar');
+        toggleBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('w-64');
+            sidebar.classList.toggle('w-16');
+            document.querySelectorAll('.sidebar-text').forEach(el => el.classList.toggle('hidden'));
+        });
+
+        /* USER DROPDOWN & NOTIFICATIONS TOGGLE */
+        function toggleUserDropdown() {
+            document.getElementById('user-dropdown').classList.toggle('hidden');
+        }
+        function toggleNotifications() {
+            document.getElementById('notification-panel').classList.toggle('hidden');
+        }
+
+        /* MODAL HANDLERS */
+        function openModal(id) {
+            document.getElementById(id).classList.remove('hidden');
+        }
+        function closeModal(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+
+        /* CONFIRMATION DIALOG */
+        let pendingAction = null;
+        function showConfirmDialog(title, desc, actionFn) {
+            document.getElementById('confirm-modal-title').textContent = title;
+            document.getElementById('confirm-modal-desc').textContent = desc || "Are you sure?";
+            pendingAction = actionFn;
+            openModal('confirm-modal');
+        }
+        function executeConfirmedAction() {
+            if (pendingAction) pendingAction();
+            showNotification('Action confirmed and executed.');
+            closeModal('confirm-modal');
+        }
+
+        /* TOAST NOTIFICATION */
+        function showNotification(message) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'glass-panel border-blue-500/40 text-white px-4 py-2.5 rounded-lg shadow-2xl text-xs flex items-center space-x-2.5 pointer-events-auto transition transform translate-y-2 opacity-0';
+            toast.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-400"></i><span>${message}</span>`;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            }, 50);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        /* DRAWERS */
+        function openClientDrawer(clientName) {
+            document.getElementById('drawer-client-name').textContent = clientName;
+            document.getElementById('client-drawer').classList.remove('drawer-closed');
+            document.getElementById('client-drawer').classList.add('drawer-open');
+        }
+        function closeClientDrawer() {
+            document.getElementById('client-drawer').classList.remove('drawer-open');
+            document.getElementById('client-drawer').classList.add('drawer-closed');
+        }
+
+        function openBrokerDetail(brokerName) {
+            showNotification('Loaded detail specs for ' + brokerName);
+            navigateTo('broker-health');
+        }
+
+        function openOrderDetail(orderId) {
+            document.getElementById('modal-order-id').textContent = orderId;
+            openModal('order-detail-modal');
+        }
+
+        /* CHAOS SIMULATOR ENGINE */
+        function runChaosSimulation(type) {
+            const consoleEl = document.getElementById('chaos-console');
+            const timestamp = new Date().toISOString().substring(11, 23);
+
+            let logMsg = '';
+            if (type === 'broker-timeout') {
+                logMsg = `<span class="text-rose-400">[${timestamp}] CHAOS INJECTED: CME Direct Gateway TCP Timeout +500ms</span><br>` +
+                         `<span class="text-amber-400">[${timestamp}] Gateway Health Circuit Breaker tripped → Rerouting traffic to IBKR Backup</span>`;
+            } else if (type === 'redis-down') {
+                logMsg = `<span class="text-rose-400">[${timestamp}] CHAOS INJECTED: Redis Cluster Master Primary Down</span><br>` +
+                         `<span class="text-emerald-400">[${timestamp}] Session Cache failover to Replica Node in 1.4ms (0 sessions lost)</span>`;
+            } else if (type === 'ip-blacklist') {
+                logMsg = `<span class="text-rose-400">[${timestamp}] CHAOS INJECTED: Egress IP 198.51.100.42 anti-dos response triggered</span><br>` +
+                         `<span class="text-blue-400">[${timestamp}] Hot-swapped to reserved Static IP 198.51.100.99</span>`;
+            } else {
+                logMsg = `<span class="text-amber-400">[${timestamp}] CHAOS INJECTED: Kafka Event Partition Lag Spike 12,000 msgs</span>`;
+            }
+
+            consoleEl.innerHTML = logMsg + '<br>' + consoleEl.innerHTML;
+            showNotification('Chaos scenario injected!');
+        }
+
+        function clearChaosConsole() {
+            document.getElementById('chaos-console').innerHTML = '<div class="text-gray-500">[SYSTEM READY] Select a failure trigger above...</div>';
+        }
+
+        /* STREAMING LIVE EVENT BUS TICKER */
+        let streamInterval = null;
+        function initEventStream() {
+            const container = document.getElementById('event-stream-container');
+            const events = [
+                'topic:broker.route ORD-9941830 routed to LMAX (1.12ms)',
+                'topic:session.heartbeat IBKR FIX session sequence 812942 verified',
+                'topic:staticip.check Egress IPv4 192.0.2.118 health check 200 OK',
+                'topic:rate.limit Token bucket refilled +100,000 tokens'
+            ];
+
+            streamInterval = setInterval(() => {
+                if (container) {
+                    const time = new Date().toISOString().substring(11, 23);
+                    const randomEvent = events[Math.floor(Math.random() * events.length)];
+                    const el = document.createElement('div');
+                    el.className = 'text-gray-400';
+                    el.innerHTML = `<span class="text-gray-600">[${time}]</span> ${randomEvent}`;
+                    container.prepend(el);
+                    if (container.children.length > 30) container.lastChild.remove();
+                }
+            }, 2500);
+        }
+
+        function toggleEventStreamPause() {
+            const btn = document.getElementById('pause-stream-btn');
+            if (streamInterval) {
+                clearInterval(streamInterval);
+                streamInterval = null;
+                btn.innerHTML = '<i class="fa-solid fa-play mr-1"></i> Resume Live Ticker';
+            } else {
+                initEventStream();
+                btn.innerHTML = '<i class="fa-solid fa-pause mr-1"></i> Pause Live Ticker';
+            }
+        }
+
+        /* INTERACTIVE MONITORING API TESTER */
+        function testApiEndpoint(endpoint) {
+            document.getElementById('api-endpoint-title').textContent = 'GET ' + endpoint;
+            const codeEl = document.getElementById('api-response-code');
+
+            if (endpoint === '/health') {
+                codeEl.textContent = JSON.stringify({ status: "HEALTHY", gateway_cluster: "k8s-ny4-prod-01", active_brokers: 12 }, null, 2);
+            } else if (endpoint === '/metrics') {
+                codeEl.textContent = `# HELP brokerbridge_orders_total Total orders\nbrokerbridge_orders_total{status="executed"} 1482910\nbrokerbridge_orders_total{status="failed"} 18`;
+            } else if (endpoint === '/broker-health') {
+                codeEl.textContent = JSON.stringify({ brokers: [{ name: "IBKR", latency_ms: 0.8, status: "ONLINE" }] }, null, 2);
+            } else {
+                codeEl.textContent = JSON.stringify({ ips_allocated: 48, pool_available: 16 }, null, 2);
+            }
+        }
+
+        function toggleHotReload() {
+            showNotification('Runtime Hot-Reload mode updated');
+        }
+
+        function triggerRefreshAnimation() {
+            const icon = document.getElementById('refresh-icon');
+            icon.classList.add('fa-spin');
+            setTimeout(() => {
+                icon.classList.remove('fa-spin');
+                showNotification('Platform telemetry synchronized');
+            }, 800);
+        }
+
+        function handleGlobalSearch(val) {
+            if (val.trim().length > 1) {
+                showNotification('Search match: Citadel Securities, IBKR Target, IP 198.51.100.42');
+            }
+        }
+
+        /* INITIALIZE CHART JS GRAPHS */
+        window.onload = function() {
+            initEventStream();
+
+            // Orders vs Latency Chart
+            const ctx1 = document.getElementById('chart-orders-latency');
+            if (ctx1) {
+                new Chart(ctx1.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: ['14:00', '14:05', '14:10', '14:15', '14:20', '14:25'],
+                        datasets: [
+                            {
+                                label: 'Orders / sec',
+                                data: [18200, 21400, 24190, 22000, 25800, 24190],
+                                borderColor: '#3b82f6',
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                fill: true,
+                                tension: 0.4
+                            },
+                            {
+                                label: 'Transit Latency (ms)',
+                                data: [1.2, 1.4, 1.84, 1.5, 1.3, 1.84],
+                                borderColor: '#10b981',
+                                yAxisID: 'y1',
+                                tension: 0.4
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                            y1: { position: 'right', grid: { display: false }, ticks: { color: '#10b981' } }
+                        }
+                    }
+                });
+            }
+
+            // Broker Load Pie Chart
+            const ctx2 = document.getElementById('chart-broker-load');
+            if (ctx2) {
+                new Chart(ctx2.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Interactive Brokers', 'Coinbase Prime', 'LMAX Exchange', 'CME Direct', 'Others'],
+                        datasets: [{
+                            data: [38, 24, 20, 12, 6],
+                            backgroundColor: ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#64748b'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom', labels: { color: '#e2e8f0', boxWidth: 10, font: { size: 10 } } } }
+                    }
+                });
+            }
+
+            // Request/Errors Monitoring Chart
+            const ctx3 = document.getElementById('chart-requests-errors');
+            if (ctx3) {
+                new Chart(ctx3.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: ['14:18', '14:19', '14:20', '14:21', '14:22'],
+                        datasets: [{ label: 'Requests (k)', data: [22, 24, 23, 25, 24], backgroundColor: '#3b82f6' }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { x: { ticks: { color: '#94a3b8' } }, y: { ticks: { color: '#94a3b8' } } }
+                    }
+                });
+            }
+
+            // Latency Percentiles Chart
+            const ctx4 = document.getElementById('chart-latency-percentiles');
+            if (ctx4) {
+                new Chart(ctx4.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: ['14:18', '14:19', '14:20', '14:21', '14:22'],
+                        datasets: [
+                            { label: 'p50 Latency (ms)', data: [0.8, 0.82, 0.81, 0.84, 0.82], borderColor: '#10b981' },
+                            { label: 'p99 Latency (ms)', data: [2.1, 2.4, 2.2, 2.8, 2.3], borderColor: '#f59e0b' }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { labels: { color: '#e2e8f0', font: { size: 10 } } } },
+                        scales: { x: { ticks: { color: '#94a3b8' } }, y: { ticks: { color: '#94a3b8' } } }
+                    }
+                });
+            }
+        };
+    </script>
+    <script src="/admin/js/api.js"></script>
+</body>
+</html>

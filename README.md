@@ -10,15 +10,32 @@ Production-oriented **Broker Network Gateway & Static IP Orchestrator** (working
 - Agent guide: [`CLAUDE.md`](CLAUDE.md)
 - Changelog: [`CHANGELOG.md`](CHANGELOG.md)
 
+## Local development (Poetry)
+
+```bash
+# Install (creates venv + uses poetry.lock)
+poetry install
+
+# Unit tests
+poetry run pytest -q
+
+# API only (no full compose stack)
+poetry run uvicorn app.main:app --reload --port 8000
+```
+
+Copy `.env.example` to `.env` if you want local overrides.
+
 ## Status
 
-Documentation and planning complete (PRD/TDD v2.3, waves W0–W6).  
-**Next:** execute Wave 0 (Local Lab foundation) — see `docs/plans/2026-07-23-wave-0-foundation.md`.
+Wave 0 Local Lab foundation is up (`docker compose up --build`, `/admin`, `/docs`, health).  
+**Next:** Wave 1 after W0 commit — see master plan.
 
-## Target Local Lab (after Wave 0+)
+## Local Lab (Docker Compose)
 
 ```bash
 docker compose up --build
+# or detached:
+docker compose up --build -d
 ```
 
 | Surface | URL |
@@ -26,6 +43,10 @@ docker compose up --build
 | Admin | http://localhost:8000/admin |
 | Swagger | http://localhost:8000/docs |
 | ReDoc | http://localhost:8000/redoc |
+| Live | http://localhost:8000/health/live |
+| Ready | http://localhost:8000/health/ready |
+
+Stack services: `api`, `worker`, `postgres`, `redis`, `redpanda`.
 
 ## Wave workflow
 
