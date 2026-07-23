@@ -1,0 +1,111 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.cache/
+pytestdebug.log
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.env.local
+.env.*.local
+
+# --- Secrets & local env (keep .env.example tracked) ---
+.env
+.env.production
+.env.staging
+*.pem
+*.key
+secrets/
+credentials.json
+**/credentials*.json
+
+# --- IDE / editors ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.code-workspace
+
+# --- OS ---
+.DS_Store
+.DS_Store?
+Thumbs.db
+Desktop.ini
+
+# --- Docker / local runtime ---
+docker-data/
+postgres-data/
+redis-data/
+redpanda-data/
+
+# --- Logs & temp ---
+logs/
+*.log
+tmp/
+temp/
+.tmp/
+
+# --- Node (if admin tooling added later) ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.next/
+out/
+
+# --- Cursor local (keep rules tracked; ignore other local state) ---
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+
+# --- Test / coverage artifacts ---
+coverage.xml
+coverage/
+.dmypy.json
+dmypy.json
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Alembic / local overrides (if any) ---
+# Keep migrations tracked; ignore only ad-hoc dumps
+*.sql.bak
+dump.sql

@@ -1,0 +1,14 @@
+---
+description: BrokerBridge core architecture and delivery rules (always apply)
+alwaysApply: true
+---
+
+# BrokerBridge Core
+
+- Specs: `local/PRD.md`, `local/TDD.md`. Master plan: `docs/plans/2026-07-23-master-implementation-plan.md`.
+- Provider architecture only — no direct Vultr/Redis/Kafka/broker SDK imports in domain/services.
+- Ship Local Lab via Docker Compose (api, worker, postgres, redis, redpanda). Mocks by default.
+- Admin = FastAPI static HTML (`/admin`); keep Swagger `/docs` + `/redoc`.
+- Implement in waves W0–W6; do not skip foundation (W0/W1).
+- After a wave is tested: **ask user to commit** — do not commit unprompted. Then update changelog.
+- Never commit `.env`, keys, or credentials.
