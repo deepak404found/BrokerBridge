@@ -3,7 +3,7 @@ from pathlib import Path
 import asyncio
 
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
@@ -97,10 +97,17 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
     register_exception_handlers(app)
     app.include_router(api_router)
-    if settings.admin_ui_enabled:
-        admin_dir = Path(__file__).parent / "static" / "admin"
-        if admin_dir.exists():
-            app.mount("/admin", StaticFiles(directory=admin_dir, html=True), name="admin")
+    admin_dir = Path(__file__).parent / "static" / "admin"
+    favicon_path = admin_dir / "favicon.png"
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon() -> FileResponse | RedirectResponse:
+        if favicon_path.is_file():
+            return FileResponse(favicon_path, media_type="image/png")
+        return RedirectResponse(url="/admin")
+
+    if settings.admin_ui_enabled and admin_dir.exists():
+        app.mount("/admin", StaticFiles(directory=admin_dir, html=True), name="admin")
 
     @app.get("/")
     async def root() -> RedirectResponse:
