@@ -14,6 +14,46 @@
   let cachedBrokers = [];
   let cachedIps = [];
   let cachedInstances = [];
+  let cachedAssignByIp = {};
+  let cachedSessionRows = [];
+  let filtersBound = false;
+
+  function F() {
+    return window.AdminFilters;
+  }
+
+  function setText(id, v) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = v;
+  }
+
+  function bindFiltersOnce() {
+    if (filtersBound || !F()) return;
+    filtersBound = true;
+    F().bindStatCard(document.getElementById("w2-ip-kpi-available"), "static-ips", "available", () => renderIpsTable());
+    F().bindStatCard(document.getElementById("w2-ip-kpi-attached"), "static-ips", "attached", () => renderIpsTable());
+    F().bindStatCard(document.getElementById("w2-ip-kpi-released"), "static-ips", "released", () => renderIpsTable());
+    F().bindStatCard(document.getElementById("w2-inst-kpi-running"), "infrastructure", "running", () => renderInstancesTables());
+    F().bindStatCard(document.getElementById("w2-inst-kpi-suspended"), "infrastructure", "suspended", () => renderInstancesTables());
+    F().bindStatCard(document.getElementById("w2-inst-kpi-destroyed"), "infrastructure", "destroyed", () => renderInstancesTables());
+    F().bindStatCard(document.getElementById("w2-brokers-kpi-enabled"), "brokers", "enabled", () => renderBrokersTable());
+    F().bindStatCard(document.getElementById("w2-brokers-kpi-disabled"), "brokers", "disabled", () => renderBrokersTable());
+    F().bindStatCard(document.getElementById("w2-sess-kpi-valid"), "sessions", "valid", () => renderSessionsTable());
+    F().bindStatCard(document.getElementById("w2-sess-kpi-missing"), "sessions", "missing", () => renderSessionsTable());
+    F().bindStatCard(document.getElementById("w2-sess-kpi-other"), "sessions", "other", () => renderSessionsTable());
+
+    const runNav = document.getElementById("w2-ip-kpi-instances");
+    if (runNav) {
+      const go = (e) => {
+        e.preventDefault();
+        if (typeof window.navigateTo === "function") window.navigateTo("infrastructure");
+      };
+      runNav.onclick = go;
+      runNav.onkeydown = (e) => {
+        if (e.key === "Enter" || e.key === " ") go(e);
+      };
+    }
+  }
 
   async function ensureAuth() {
     if (!api().getToken()) {
@@ -48,16 +88,55 @@
       : `<span class="text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded text-[11px] font-medium">DISABLED</span>`;
   }
 
+  function fmtTs(value) {
+    return api().formatTs ? api().formatTs(value) : value || "—";
+  }
+
+  function instanceStatusBadge(status) {
+    const s = String(status || "").toLowerCase();
+    if (s === "running") {
+      return `<span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold">RUNNING</span>`;
+    }
+    if (s === "suspended") {
+      return `<span class="bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded text-[10px] font-bold">SUSPENDED</span>`;
+    }
+    if (s === "destroyed") {
+      return `<span class="bg-rose-500/10 text-rose-400 px-2 py-0.5 rounded text-[10px] font-bold">DESTROYED</span>`;
+    }
+    return `<span class="bg-white/5 text-gray-300 px-2 py-0.5 rounded text-[10px] font-bold">${(status || "—").toUpperCase()}</span>`;
+  }
+
   async function loadBrokers() {
     await ensureAuth();
+    bindFiltersOnce();
     cachedBrokers = api().asItems(await api().json("/brokers?limit=100"));
+    if (F()) F().applySeed("brokers", () => renderBrokersTable());
+    const enabled = cachedBrokers.filter((b) => b.enabled).length;
+    setText("w2-brokers-enabled", String(enabled));
+    setText("w2-brokers-disabled", String(cachedBrokers.length - enabled));
+    renderBrokersTable();
+  }
+
+  function renderBrokersTable() {
     const tbody = document.getElementById("w2-brokers-tbody");
     if (!tbody) return;
+    const filter = F() ? F().get("brokers") : null;
+    let rows = cachedBrokers;
+    if (filter === "enabled") rows = rows.filter((b) => b.enabled);
+    else if (filter === "disabled") rows = rows.filter((b) => !b.enabled);
+    if (F()) {
+      F().syncCardStyles("brokers");
+      F().updateChip("brokers");
+    }
     if (!cachedBrokers.length) {
-      tbody.innerHTML = `<tr><td colspan="8" class="py-6 px-4 text-center text-gray-500">No brokers yet — connect one.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" class="py-6 px-4 text-center text-gray-500">No brokers yet — connect one.</td></tr>`;
       return;
     }
-    tbody.innerHTML = cachedBrokers
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="9" class="py-6 px-4 text-center text-gray-500">No brokers match filter.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows
       .map((b) => {
         const regions = (b.allowed_regions || []).join(", ") || "—";
         return `<tr class="hover:bg-white/5 transition" data-broker-id="${b.id}">
@@ -67,6 +146,8 @@
           <td class="py-3.5 px-4 font-sans">${capsHtml(b.capabilities)}</td>
           <td class="py-3.5 px-4 font-sans text-gray-400">${regions}</td>
           <td class="py-3.5 px-4 font-sans">${statusBadge(b.enabled)}</td>
+          <td class="py-3.5 px-4 text-gray-400 whitespace-nowrap">${fmtTs(b.created_at)}</td>
+          <td class="py-3.5 px-4 text-gray-400 whitespace-nowrap">${fmtTs(b.updated_at)}</td>
           <td class="py-3.5 px-4 text-right font-sans space-x-1 whitespace-nowrap">
             <button data-action="detail" class="px-2 py-1 bg-dark-700 hover:bg-white/10 rounded text-xs text-blue-400">Details</button>
             <button data-action="caps" class="px-2 py-1 bg-dark-700 hover:bg-white/10 rounded text-xs text-emerald-400" title="Refresh capabilities"><i class="fa-solid fa-plug"></i></button>
@@ -192,33 +273,67 @@
 
   async function loadSessions() {
     await ensureAuth();
+    bindFiltersOnce();
     const sessions = api().asItems(await api().json("/monitoring/sessions?limit=100"));
     const brokers = cachedBrokers.length ? cachedBrokers : api().asItems(await api().json("/brokers?limit=100"));
     cachedBrokers = brokers;
-    const tbody = document.getElementById("w2-sessions-tbody");
-    if (!tbody) return;
-
     const byId = Object.fromEntries(sessions.map((s) => [s.broker_account_id, s]));
-    const rows = brokers.map((b) => {
+    cachedSessionRows = brokers.map((b) => {
       const s = byId[b.id];
       const status = s ? s.status : "missing";
-      const expires = s && s.expires_at ? new Date(s.expires_at).toLocaleString() : "—";
-      const badge =
-        status === "valid"
-          ? `<span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold">VALID</span>`
-          : `<span class="bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded text-[10px] font-bold">${status.toUpperCase()}</span>`;
-      return `<tr class="hover:bg-white/5 transition">
+      return { broker: b, session: s, status };
+    });
+    const valid = cachedSessionRows.filter((r) => r.status === "valid").length;
+    const missing = cachedSessionRows.filter((r) => r.status === "missing").length;
+    const other = cachedSessionRows.length - valid - missing;
+    setText("w2-sess-valid", String(valid));
+    setText("w2-sess-missing", String(missing));
+    setText("w2-sess-other", String(other));
+    if (F()) F().applySeed("sessions", () => renderSessionsTable());
+    renderSessionsTable();
+  }
+
+  function renderSessionsTable() {
+    const tbody = document.getElementById("w2-sessions-tbody");
+    if (!tbody) return;
+    const filter = F() ? F().get("sessions") : null;
+    let rows = cachedSessionRows;
+    if (filter === "valid") rows = rows.filter((r) => r.status === "valid");
+    else if (filter === "missing") rows = rows.filter((r) => r.status === "missing");
+    else if (filter === "other") rows = rows.filter((r) => r.status !== "valid" && r.status !== "missing");
+    if (F()) {
+      F().syncCardStyles("sessions");
+      F().updateChip("sessions");
+    }
+    if (!cachedSessionRows.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="py-6 px-4 text-center text-gray-500">No brokers</td></tr>`;
+      return;
+    }
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="py-6 px-4 text-center text-gray-500">No sessions match filter.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows
+      .map(({ broker: b, session: s, status }) => {
+        const expires = s && s.expires_at ? fmtTs(s.expires_at) : "—";
+        const updated = s && s.updated_at ? fmtTs(s.updated_at) : "—";
+        const badge =
+          status === "valid"
+            ? `<span class="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold">VALID</span>`
+            : `<span class="bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded text-[10px] font-bold">${status.toUpperCase()}</span>`;
+        return `<tr class="hover:bg-white/5 transition">
         <td class="py-3.5 px-4 font-sans font-bold text-white">${b.display_name}</td>
         <td class="py-3.5 px-4 text-blue-400 font-mono text-[10px]">${b.id.slice(0, 8)}…</td>
         <td class="py-3.5 px-4 text-gray-400">${s && s.has_tokens ? "(encrypted — not shown)" : "—"}</td>
-        <td class="py-3.5 px-4 text-emerald-400">${expires}</td>
+        <td class="py-3.5 px-4 text-emerald-400 whitespace-nowrap">${expires}</td>
+        <td class="py-3.5 px-4 text-gray-400 whitespace-nowrap">${updated}</td>
         <td class="py-3.5 px-4 font-sans">${badge}</td>
         <td class="py-3.5 px-4 text-right font-sans">
           <button data-broker-id="${b.id}" class="w2-session-refresh px-2 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded text-xs">Ensure / Refresh</button>
         </td>
       </tr>`;
-    });
-    tbody.innerHTML = rows.join("") || `<tr><td colspan="6" class="py-6 px-4 text-center text-gray-500">No brokers</td></tr>`;
+      })
+      .join("");
     tbody.querySelectorAll(".w2-session-refresh").forEach((btn) => {
       btn.addEventListener("click", async () => {
         try {
@@ -391,25 +506,26 @@
 
   async function loadIps() {
     await ensureAuth();
+    bindFiltersOnce();
     cachedIps = api().asItems(await api().json("/infrastructure/ips?limit=100"));
     cachedInstances = await api().json("/infrastructure/instances");
+    if (!Array.isArray(cachedInstances)) cachedInstances = [];
     const assignments = await api().json("/infrastructure/assignments");
-    const assignByIp = {};
-    assignments.forEach((a) => {
-      if (a.status === "active") assignByIp[a.static_ip_id] = a;
+    cachedAssignByIp = {};
+    (assignments || []).forEach((a) => {
+      if (a.status === "active") cachedAssignByIp[a.static_ip_id] = a;
     });
 
     const available = cachedIps.filter((i) => i.status === "allocated" || i.status === "detached").length;
     const attached = cachedIps.filter((i) => i.status === "attached").length;
     const released = cachedIps.filter((i) => i.status === "released").length;
-    const setText = (id, v) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = v;
-    };
     setText("w2-ip-available", String(available));
     setText("w2-ip-attached", String(attached));
     setText("w2-ip-released", String(released));
     setText("w2-ip-instances", String(cachedInstances.filter((i) => i.status === "running").length));
+    setText("w2-inst-running", String(cachedInstances.filter((i) => String(i.status).toLowerCase() === "running").length));
+    setText("w2-inst-suspended", String(cachedInstances.filter((i) => String(i.status).toLowerCase() === "suspended").length));
+    setText("w2-inst-destroyed", String(cachedInstances.filter((i) => String(i.status).toLowerCase() === "destroyed").length));
 
     const brokerSelect = document.getElementById("w2-assign-broker");
     if (brokerSelect) {
@@ -432,15 +548,42 @@
         .join("");
     }
 
+    if (F()) {
+      F().applySeed("static-ips", () => renderIpsTable());
+      F().applySeed("infrastructure", () => renderInstancesTables());
+    }
+    renderInstancesTables();
+    renderIpsTable();
+  }
+
+  function ipMatchesFilter(ip, filter) {
+    if (!filter) return true;
+    if (filter === "available") return ip.status === "allocated" || ip.status === "detached";
+    if (filter === "attached") return ip.status === "attached";
+    if (filter === "released") return ip.status === "released";
+    return String(ip.status).toLowerCase() === String(filter).toLowerCase();
+  }
+
+  function renderIpsTable() {
     const tbody = document.getElementById("w2-ips-tbody");
     if (!tbody) return;
+    const filter = F() ? F().get("static-ips") : null;
+    if (F()) {
+      F().syncCardStyles("static-ips");
+      F().updateChip("static-ips");
+    }
     if (!cachedIps.length) {
       tbody.innerHTML = `<tr><td colspan="7" class="py-6 px-4 text-center text-gray-500">No static IPs — allocate one.</td></tr>`;
       return;
     }
-    tbody.innerHTML = cachedIps
+    const rows = cachedIps.filter((ip) => ipMatchesFilter(ip, filter));
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="py-6 px-4 text-center text-gray-500">No IPs match filter.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows
       .map((ip) => {
-        const a = assignByIp[ip.id];
+        const a = cachedAssignByIp[ip.id];
         const actions = ipActionSpecs(ip, a)
           .map((spec) => {
             const html = renderActionButton(spec);
@@ -459,6 +602,7 @@
           <td class="py-3 px-4 font-sans"><span class="bg-white/5 px-2 py-0.5 rounded text-gray-300">${ip.provider}</span></td>
           <td class="py-3 px-4 font-sans">${a ? a.broker_display_name : "—"}</td>
           <td class="py-3 px-4 font-sans"><span class="bg-white/5 px-2 py-0.5 rounded text-[10px]">${ip.status.toUpperCase()}</span></td>
+          <td class="py-3 px-4 text-gray-400 whitespace-nowrap">${fmtTs(ip.created_at)}</td>
           <td class="py-3 px-4 text-right font-sans space-x-1 whitespace-nowrap">${actions}</td>
         </tr>`;
       })
@@ -485,6 +629,95 @@
         });
       });
     });
+  }
+
+  function renderInstancesTables() {
+    const empty =
+      `<tr><td colspan="7" class="py-6 px-4 text-center text-gray-500">No instances — use Provision Instance.</td></tr>`;
+    const filter = F() ? F().get("infrastructure") : null;
+    if (F()) {
+      F().syncCardStyles("infrastructure");
+      F().updateChip("infrastructure");
+    }
+    let list = cachedInstances;
+    if (filter) {
+      list = list.filter((i) => String(i.status || "").toLowerCase() === filter);
+    }
+    const html = !cachedInstances.length
+      ? empty
+      : !list.length
+        ? `<tr><td colspan="7" class="py-6 px-4 text-center text-gray-500">No instances match filter.</td></tr>`
+        : list
+            .map((inst) => {
+              const st = String(inst.status || "").toLowerCase();
+              const destroyed = st === "destroyed";
+              const running = st === "running";
+              const suspended = st === "suspended";
+              const name = escapeAttr(inst.display_name || instancePickerLabel(inst));
+              const actions = destroyed
+                ? "—"
+                : [
+                    running
+                      ? `<button data-action="suspend" class="px-2 py-1 bg-amber-500/10 text-amber-400 rounded text-xs hover:brightness-125">Suspend</button>`
+                      : "",
+                    suspended
+                      ? `<button data-action="start" class="px-2 py-1 bg-emerald-500/10 text-emerald-400 rounded text-xs hover:brightness-125">Start</button>`
+                      : "",
+                    `<button data-action="destroy" class="px-2 py-1 bg-rose-500/10 text-rose-400 rounded text-xs hover:brightness-125">Destroy</button>`,
+                  ]
+                    .filter(Boolean)
+                    .join(" ");
+              return `<tr class="hover:bg-white/5 transition" data-instance-id="${inst.id}">
+              <td class="py-3 px-4 font-sans font-semibold text-white">${name}</td>
+              <td class="py-3 px-4 text-blue-400 text-[10px]" title="${escapeAttr(inst.id)}">${escapeAttr(inst.external_id)}</td>
+              <td class="py-3 px-4 font-sans text-gray-300">${escapeAttr(inst.region)}</td>
+              <td class="py-3 px-4 font-sans"><span class="bg-white/5 px-2 py-0.5 rounded text-gray-300">${escapeAttr(inst.provider)}</span></td>
+              <td class="py-3 px-4 font-sans">${instanceStatusBadge(inst.status)}</td>
+              <td class="py-3 px-4 text-gray-400 whitespace-nowrap">${fmtTs(inst.created_at)}</td>
+              <td class="py-3 px-4 text-right font-sans space-x-1 whitespace-nowrap">${actions}</td>
+            </tr>`;
+            })
+            .join("");
+
+    const tbody = document.getElementById("w2-infra-instances-tbody");
+    if (!tbody) return;
+    tbody.innerHTML = html;
+    tbody.querySelectorAll("tr[data-instance-id]").forEach((tr) => {
+      const instanceId = tr.getAttribute("data-instance-id");
+      tr.querySelectorAll("button[data-action]").forEach((btn) => {
+        btn.addEventListener("click", () =>
+          handleInstanceAction(btn.getAttribute("data-action"), instanceId),
+        );
+      });
+    });
+  }
+
+  async function handleInstanceAction(action, instanceId) {
+    try {
+      await ensureAuth();
+      if (action === "destroy") {
+        if (!window.confirm("Destroy this instance? This stops/removes the mock container.")) return;
+        await api().json(`/infrastructure/instances/${instanceId}`, { method: "DELETE" });
+        notify("Instance destroyed");
+      } else if (action === "suspend") {
+        await api().json(`/infrastructure/instances/${instanceId}/suspend`, {
+          method: "POST",
+          body: "{}",
+        });
+        notify("Instance suspended");
+      } else if (action === "start") {
+        await api().json(`/infrastructure/instances/${instanceId}/start`, {
+          method: "POST",
+          body: "{}",
+        });
+        notify("Instance started");
+      } else {
+        return;
+      }
+      await loadIps();
+    } catch (e) {
+      errNotify(e);
+    }
   }
 
   let pendingIpAction = null;

@@ -6,6 +6,11 @@
     else console.log(msg);
   };
   const errNotify = (err) => {
+    const api = window.BrokerBridgeApi;
+    if (api && typeof api.formatError === "function") {
+      notify(api.formatError(err));
+      return;
+    }
     const code = err.error_code ? `[${err.error_code}] ` : "";
     notify(code + (err.message || "Request failed"));
   };
@@ -114,7 +119,7 @@
     );
   }
 
-  function statusPills(map) {
+  function statusPills(map, pageId) {
     const entries = Object.entries(map || {});
     if (!entries.length) {
       return `<span class="text-[11px] text-gray-500">none</span>`;
@@ -122,13 +127,45 @@
     return `<div class="flex flex-wrap gap-1.5 mt-2">${entries
       .map(([k, v]) => {
         const st = statusStyle(k);
-        return `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] ${st.bg}">
+        const extra = pageId ? " cursor-pointer hover:brightness-125" : "";
+        const attrs = pageId
+          ? ` role="button" tabindex="0" data-dash-nav="${pageId}" data-dash-filter="${String(k).replace(/"/g, "")}"`
+          : "";
+        return `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] ${st.bg}${extra}"${attrs}>
           <i class="fa-solid ${st.icon} ${st.color} text-[10px]"></i>
           <span class="text-gray-300 uppercase tracking-wide">${k}</span>
           <span class="font-mono text-white font-semibold">${v}</span>
         </span>`;
       })
       .join("")}</div>`;
+  }
+
+  function bindDashboardPills(root) {
+    if (!root || !window.AdminFilters) return;
+    root.querySelectorAll("[data-dash-nav]").forEach((el) => {
+      const go = (e) => {
+        e.preventDefault();
+        const page = el.getAttribute("data-dash-nav");
+        let key = el.getAttribute("data-dash-filter");
+        // Map dashboard IP keys to Static IPs filter keys
+        if (page === "static-ips") {
+          const lower = String(key || "").toLowerCase();
+          if (lower === "allocated" || lower === "detached" || lower === "available") key = "available";
+          else key = lower;
+        }
+        if (page === "sessions") key = String(key || "").toLowerCase();
+        if (page === "broker-health") {
+          const lower = String(key || "").toLowerCase();
+          key = lower === "healthy" || lower === "degraded" ? lower : "unhealthy";
+        }
+        if (page === "orders") key = String(key || "").toUpperCase();
+        window.AdminFilters.seedNavigate(page, key);
+      };
+      el.onclick = go;
+      el.onkeydown = (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") go(ev);
+      };
+    });
   }
 
   function kpiCard({ label, value, subHtml, icon, iconColor }) {
@@ -191,14 +228,14 @@
           value: d.sessions?.total ?? 0,
           icon: "fa-key",
           iconColor: "text-yellow-400",
-          subHtml: statusPills(d.sessions?.by_status),
+          subHtml: statusPills(d.sessions?.by_status, "sessions"),
         })}
         ${kpiCard({
           label: "Static IPs",
           value: d.static_ips?.total ?? 0,
           icon: "fa-network-wired",
           iconColor: "text-indigo-400",
-          subHtml: statusPills(d.static_ips?.by_status),
+          subHtml: statusPills(d.static_ips?.by_status, "static-ips"),
         })}
         ${kpiCard({
           label: "Failovers",
@@ -240,16 +277,17 @@
             <i class="fa-solid fa-heart-pulse text-rose-400"></i>
             <span>Broker health summary</span>
           </div>
-          ${statusPills(d.broker_health?.statuses)}
+          ${statusPills(d.broker_health?.statuses, "broker-health")}
         </div>
         <div class="glass-panel rounded-xl p-4">
           <div class="flex items-center gap-2 text-xs text-gray-400 mb-3">
             <i class="fa-solid fa-gears text-blue-400"></i>
             <span>Engine by status</span>
           </div>
-          ${statusPills(d.engine?.by_status)}
+          ${statusPills(d.engine?.by_status, "orders")}
         </div>
       </div>`;
+    bindDashboardPills(root);
   }
 
   let lastRedisOk = null;
@@ -363,11 +401,110 @@
     renderReplayStats(stats);
   }
 
+  let cachedEvents = [];
+  let cachedAudit = [];
+  let cachedFaults = [];
+  let simFiltersBound = false;
+  let eventFiltersBound = false;
+
+  function F() {
+    return window.AdminFilters;
+  }
+
+  function setText(id, v) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = v;
+  }
+
+  function bindEventFiltersOnce() {
+    if (eventFiltersBound || !F()) return;
+    eventFiltersBound = true;
+    F().bindStatCard(document.getElementById("w4-events-kpi-sent"), "events", "sent", () => renderEventsFiltered());
+    F().bindStatCard(document.getElementById("w4-events-kpi-consumed"), "events", "consumed", () => renderEventsFiltered());
+    F().bindStatCard(document.getElementById("w4-events-kpi-error"), "events", "error", () => renderEventsFiltered());
+  }
+
+  function bindSimFiltersOnce() {
+    if (simFiltersBound || !F()) return;
+    simFiltersBound = true;
+    F().bindStatCard(document.getElementById("w5-sim-kpi-enabled"), "simulator", "enabled", () => renderSimFaults());
+    F().bindStatCard(document.getElementById("w5-sim-kpi-disabled"), "simulator", "disabled", () => renderSimFaults());
+  }
+
+  function updateEventKpis(rows) {
+    setText("w4-events-sent", String(rows.filter((r) => r.status === "sent").length));
+    setText("w4-events-consumed", String(rows.filter((r) => r.status === "consumed").length));
+    setText("w4-events-error", String(rows.filter((r) => r.status === "error").length));
+  }
+
+  function renderEventsFiltered() {
+    const rows = cachedEvents;
+    const filter = F() ? F().get("events") : null;
+    if (F()) {
+      F().syncCardStyles("events");
+      F().updateChip("events");
+    }
+    const filtered = filter ? rows.filter((r) => r.status === filter) : rows;
+    const tbody = document.getElementById("w4-events-tbody");
+    if (!tbody) return;
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="py-6 px-4 text-center text-gray-500">No events yet.</td></tr>`;
+      return;
+    }
+    if (!filtered.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="py-6 px-4 text-center text-gray-500">No events match filter.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = filtered
+      .map((r) => {
+        const when = String(r.created_at || "").replace("T", " ").slice(0, 19);
+        const st =
+          r.status === "sent" || r.status === "consumed"
+            ? "text-emerald-400"
+            : r.status === "error"
+              ? "text-rose-400"
+              : "text-amber-400";
+        return `<tr class="hover:bg-white/5">
+            <td class="py-2.5 px-4 text-gray-400">${when}</td>
+            <td class="py-2.5 px-4 text-white">${r.event_type}</td>
+            <td class="py-2.5 px-4">${r.topic}</td>
+            <td class="py-2.5 px-4 ${st}">${r.status}${r.source ? ` · ${r.source}` : ""}</td>
+            <td class="py-2.5 px-4 text-gray-400 max-w-xs">${eventPayloadCell(r)}</td>
+          </tr>`;
+      })
+      .join("");
+  }
+
   async function loadSim() {
     await ensureAuth();
-    const faults = await api().json("/admin/sim/faults");
+    bindSimFiltersOnce();
+    cachedFaults = await api().json("/admin/sim/faults");
+    if (!Array.isArray(cachedFaults)) cachedFaults = [];
+    setText("w5-sim-enabled", String(cachedFaults.filter((f) => f.enabled).length));
+    setText("w5-sim-disabled", String(cachedFaults.filter((f) => !f.enabled).length));
+    if (F()) F().applySeed("simulator", () => renderSimFaults());
+    renderSimFaults();
+  }
+
+  function renderSimFaults() {
     const root = document.getElementById("w5-sim-faults");
     if (!root) return;
+    const filter = F() ? F().get("simulator") : null;
+    if (F()) {
+      F().syncCardStyles("simulator");
+      F().updateChip("simulator");
+    }
+    let faults = cachedFaults;
+    if (filter === "enabled") faults = faults.filter((f) => f.enabled);
+    else if (filter === "disabled") faults = faults.filter((f) => !f.enabled);
+    if (!cachedFaults.length) {
+      root.innerHTML = `<div class="glass-panel rounded-xl p-8 text-center text-gray-500 text-xs">No faults defined.</div>`;
+      return;
+    }
+    if (!faults.length) {
+      root.innerHTML = `<div class="glass-panel rounded-xl p-8 text-center text-gray-500 text-xs">No faults match filter.</div>`;
+      return;
+    }
     root.innerHTML = faults
       .map(
         (f) => `
@@ -418,7 +555,7 @@
     });
     const links = document.getElementById("w5-sim-links");
     if (links) {
-      if (faults.some((f) => f.enabled)) links.classList.remove("hidden");
+      if (cachedFaults.some((f) => f.enabled)) links.classList.remove("hidden");
       else links.classList.add("hidden");
     }
   }
@@ -434,33 +571,84 @@
   async function loadAudit() {
     await ensureAuth();
     const payload = await api().json("/admin/sim/history?limit=50&offset=0");
-    const rows = api().asItems(payload);
-    const tbody = document.getElementById("w5-audit-tbody");
+    cachedAudit = api().asItems(payload);
     const hint = document.getElementById("w5-audit-hint");
     if (hint) {
       hint.textContent = "Simulator toggle history (ops activity). Full SOC2 audit warehouse lands later.";
     }
+    renderAuditStats();
+    if (F()) F().applySeed("audit-logs", () => renderAudit());
+    renderAudit();
+  }
+
+  function renderAuditStats() {
+    const root = document.getElementById("w5-audit-stats");
+    if (!root) return;
+    const counts = {};
+    cachedAudit.forEach((r) => {
+      const a = r.action || "other";
+      counts[a] = (counts[a] || 0) + 1;
+    });
+    const keys = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([k]) => k);
+    if (!keys.length) {
+      root.innerHTML = "";
+      return;
+    }
+    root.innerHTML = keys
+      .map(
+        (k) => `<div id="w5-audit-kpi-${k}" class="glass-panel p-4 rounded-xl">
+          <div class="text-xs text-gray-400 uppercase">${k}</div>
+          <div class="text-2xl font-bold text-white font-mono mt-1">${counts[k]}</div>
+          <div class="text-[10px] text-gray-400 mt-1">Click to filter · again to clear</div>
+        </div>`,
+      )
+      .join("");
+    if (F()) {
+      keys.forEach((k) => {
+        F().bindStatCard(document.getElementById(`w5-audit-kpi-${k}`), "audit-logs", k, () => renderAudit());
+      });
+      F().syncCardStyles("audit-logs");
+    }
+  }
+
+  function renderAudit() {
+    const tbody = document.getElementById("w5-audit-tbody");
     if (!tbody) return;
-    tbody.innerHTML = rows.length
-      ? rows
-          .map((r) => {
-            const when = String(r.at || "").replace("T", " ").slice(0, 19);
-            const action = r.action || "—";
-            const color =
-              action === "enable"
-                ? "text-rose-400"
-                : action === "disable" || action === "cleared"
-                  ? "text-emerald-400"
-                  : "text-amber-400";
-            return `<tr class="hover:bg-white/5">
+    const filter = F() ? F().get("audit-logs") : null;
+    if (F()) {
+      F().syncCardStyles("audit-logs");
+      F().updateChip("audit-logs");
+    }
+    const rows = filter ? cachedAudit.filter((r) => (r.action || "other") === filter) : cachedAudit;
+    if (!cachedAudit.length) {
+      tbody.innerHTML = `<tr><td colspan="4" class="py-6 px-4 text-center text-gray-500">No simulator activity yet. Enable a fault on Simulator.</td></tr>`;
+      return;
+    }
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="4" class="py-6 px-4 text-center text-gray-500">No audit rows match filter.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows
+      .map((r) => {
+        const when = String(r.at || "").replace("T", " ").slice(0, 19);
+        const action = r.action || "—";
+        const color =
+          action === "enable"
+            ? "text-rose-400"
+            : action === "disable" || action === "cleared"
+              ? "text-emerald-400"
+              : "text-amber-400";
+        return `<tr class="hover:bg-white/5">
               <td class="py-2.5 px-4 text-gray-400">${when}</td>
               <td class="py-2.5 px-4 ${color} font-semibold uppercase text-[10px] tracking-wider">${action}</td>
               <td class="py-2.5 px-4 font-mono text-white">${r.fault_id || "—"}</td>
               <td class="py-2.5 px-4 text-gray-400">chaos simulator</td>
             </tr>`;
-          })
-          .join("")
-      : `<tr><td colspan="4" class="py-6 px-4 text-center text-gray-500">No simulator activity yet. Enable a fault on Simulator.</td></tr>`;
+      })
+      .join("");
   }
 
   async function loadInfraProvider() {
@@ -576,31 +764,20 @@
 
   async function loadEventsPaged() {
     await ensureAuth();
+    bindEventFiltersOnce();
     const st = pageState.events;
     const payload = await api().json(`/monitoring/events?limit=${st.limit}&offset=${st.offset}`);
-    const rows = api().asItems(payload);
+    cachedEvents = api().asItems(payload);
     Object.assign(st, api().pageMeta(payload, st.limit));
-    if (window.W4Admin && W4Admin.renderEvents) W4Admin.renderEvents(rows);
-    else {
-      const tbody = document.getElementById("w4-events-tbody");
-      if (tbody) {
-        tbody.innerHTML = rows.length
-          ? rows
-              .map((r) => {
-                const when = String(r.created_at || "").replace("T", " ").slice(0, 19);
-                return `<tr class="hover:bg-white/5">
-                  <td class="py-2.5 px-4 text-gray-400">${when}</td>
-                  <td class="py-2.5 px-4 text-white">${r.event_type}</td>
-                  <td class="py-2.5 px-4">${r.topic}</td>
-                  <td class="py-2.5 px-4">${r.status}${r.source ? ` · ${r.source}` : ""}</td>
-                  <td class="py-2.5 px-4 text-gray-400 max-w-xs">${eventPayloadCell(r)}</td>
-                </tr>`;
-              })
-              .join("")
-          : `<tr><td colspan="5" class="py-6 px-4 text-center text-gray-500">No events yet.</td></tr>`;
-      }
-    }
-    const feed = rows[0]?.source === "consumed" ? "consumer-backed live" : rows.length ? "outbox fallback" : "empty";
+    updateEventKpis(cachedEvents);
+    if (F()) F().applySeed("events", () => renderEventsFiltered());
+    renderEventsFiltered();
+    const feed =
+      cachedEvents[0]?.source === "consumed"
+        ? "consumer-backed live"
+        : cachedEvents.length
+          ? "outbox fallback"
+          : "empty";
     const statusEl = document.getElementById("w4-events-live-status");
     if (statusEl) statusEl.textContent = `Event Bus source: ${feed} · total=${st.total}`;
     renderPager("w5-events-pager", "events", () => loadEventsPaged().catch(errNotify));
@@ -798,30 +975,10 @@
   // Expose render helper for w4 compatibility
   if (window.W4Admin) {
     W4Admin.renderEvents = function (rows) {
-      const tbody = document.getElementById("w4-events-tbody");
-      if (!tbody) return;
-      if (!rows || !rows.length) {
-        tbody.innerHTML = `<tr><td colspan="5" class="py-6 px-4 text-center text-gray-500">No events yet.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = rows
-        .map((r) => {
-          const when = String(r.created_at || "").replace("T", " ").slice(0, 19);
-          const st =
-            r.status === "sent" || r.status === "consumed"
-              ? "text-emerald-400"
-              : r.status === "error"
-                ? "text-rose-400"
-                : "text-amber-400";
-          return `<tr class="hover:bg-white/5">
-            <td class="py-2.5 px-4 text-gray-400">${when}</td>
-            <td class="py-2.5 px-4 text-white">${r.event_type}</td>
-            <td class="py-2.5 px-4">${r.topic}</td>
-            <td class="py-2.5 px-4 ${st}">${r.status}${r.source ? ` · ${r.source}` : ""}</td>
-            <td class="py-2.5 px-4 text-gray-400 max-w-xs">${eventPayloadCell(r)}</td>
-          </tr>`;
-        })
-        .join("");
+      cachedEvents = Array.isArray(rows) ? rows : [];
+      updateEventKpis(cachedEvents);
+      bindEventFiltersOnce();
+      renderEventsFiltered();
     };
   }
 

@@ -40,6 +40,9 @@ async def seed_defaults(session: AsyncSession, settings: Settings) -> None:
             )
         )
         if existing.scalars().first() is None:
+            non_secret: dict = {}
+            if kind == ProviderKind.infrastructure:
+                non_secret["mock_backend"] = settings.mock_infra_backend or "database"
             session.add(
                 ProviderConfig(
                     kind=kind,
@@ -47,7 +50,7 @@ async def seed_defaults(session: AsyncSession, settings: Settings) -> None:
                     scope_type=ProviderScope.global_,
                     status=ProviderStatus.active,
                     version=1,
-                    config_non_secret={},
+                    config_non_secret=non_secret,
                 )
             )
 
@@ -85,6 +88,7 @@ async def seed_defaults(session: AsyncSession, settings: Settings) -> None:
         "orders.execution_mode": {"mode": "inline"},
         "ip.rotation.drain_timeout_seconds": {"seconds": 30},
         "ip.rotation.on_timeout": {"policy": "ABORT"},
+        "subscription.teardown_mode": {"mode": "SUSPEND"},
     }
     for key, value in w3_defaults.items():
         existing = await session.execute(

@@ -16,6 +16,23 @@ window.BrokerBridgeApi = {
     const items = this.asItems(payload);
     return { total: items.length, limit: fallbackLimit || 25, offset: 0, next_offset: null };
   },
+  /** Locale-friendly timestamp for Admin tables; blank if missing. */
+  formatTs(value) {
+    if (value == null || value === "") return "—";
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) {
+      return String(value).replace("T", " ").replace(/\.\d+Z?$/, "").slice(0, 19);
+    }
+    return d.toLocaleString(undefined, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  },
   getToken() {
     return localStorage.getItem("bb_token");
   },
@@ -59,6 +76,7 @@ window.BrokerBridgeApi = {
   },
   async json(path, options = {}) {
     const res = await this.request(path, options);
+    if (res.status === 204) return null;
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const msg = data.message || (data.error && data.error.message) || `HTTP ${res.status}`;
@@ -67,9 +85,72 @@ window.BrokerBridgeApi = {
       err.error_code = data.error_code;
       err.details = data.details;
       err.payload = data;
+      err.displayMessage = this.formatError(err);
       throw err;
     }
     return data;
+  },
+
+  formatError(err) {
+    const code = err.error_code ? `[${err.error_code}] ` : "";
+    let msg = err.message || "Request failed";
+    const d = err.details;
+    if (d && typeof d === "object") {
+      const detailMsg = d.message || d.hint || (typeof d.error === "string" ? d.error : null);
+      if (detailMsg && !msg.includes(String(detailMsg))) {
+        msg = `${msg} — ${detailMsg}`;
+      }
+    }
+    return code + msg;
+  },
+
+  /** Copy plain text to clipboard; toast "Copied" on success. */
+  async copyText(str) {
+    const text = String(str ?? "");
+    if (!text) {
+      if (typeof showNotification === "function") showNotification("Nothing to copy", true);
+      return false;
+    }
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      if (typeof showNotification === "function") showNotification("Copied");
+      return true;
+    } catch (_) {
+      if (typeof showNotification === "function") showNotification("Copy failed", true);
+      return false;
+    }
+  },
+
+  escapeAttr(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;")
+      .replace(/</g, "&lt;");
+  },
+
+  /** Small icon button; reads text from data-copy. */
+  copyButtonHtml(text, title) {
+    const label = this.escapeAttr(title || "Copy");
+    const payload = this.escapeAttr(text);
+    return (
+      `<button type="button" class="inline-flex items-center justify-center shrink-0 w-6 h-6 rounded border border-white/10 bg-dark-800 hover:bg-white/10 text-gray-400 hover:text-white transition" ` +
+      `title="${label}" aria-label="${label}" data-copy="${payload}" ` +
+      `onclick="event.preventDefault(); event.stopPropagation(); window.BrokerBridgeApi.copyText(this.getAttribute('data-copy'))">` +
+      `<i class="fa-solid fa-copy text-[10px]"></i></button>`
+    );
   },
 };
 

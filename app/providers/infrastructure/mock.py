@@ -1,119 +1,77 @@
-import itertools
+"""Mock infrastructure facade — delegates to database or docker backends."""
+
+from __future__ import annotations
+
 from typing import Any
-from uuid import uuid4
 
-from app.sim.flags import infra_fault_enabled
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.providers.infrastructure.errors import MockInfrastructureError
 
-class MockInfrastructureError(Exception):
-    def __init__(
-        self,
-        code: str,
-        message: str,
-        *,
-        status: int = 503,
-    ) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.status = status
+__all__ = ["MockInfrastructureError", "MockInfrastructureProvider"]
 
 
 class MockInfrastructureProvider:
-    """Mock cloud infra using documentation-range IPs (198.51.100.0/24, 203.0.113.0/24)."""
+    """Facade over MOCK_INFRA_BACKEND=database|docker.
 
-    def __init__(self) -> None:
-        self._ip_counter = itertools.count(1)
-        self._ips: dict[str, dict[str, Any]] = {}
-        self._instances: dict[str, dict[str, Any]] = {}
-        self._probe_fail: bool = False
+    Domain code depends only on InfrastructureProvider methods — never Docker/DB internals.
+    """
+
+    def __init__(
+        self,
+        *,
+        backend: str = "database",
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
+        docker_host: str | None = None,
+    ) -> None:
+        name = (backend or "database").strip().lower()
+        if name not in {"database", "docker"}:
+            name = "database"
+        self.backend_name = name
+        if name == "docker":
+            from app.providers.infrastructure.mock_docker import DockerMockBackend
+
+            self._backend = DockerMockBackend(docker_host=docker_host)
+        else:
+            from app.providers.infrastructure.mock_database import DatabaseMockBackend
+
+            self._backend = DatabaseMockBackend(session_factory=session_factory)
 
     def set_probe_fail(self, enabled: bool) -> None:
-        self._probe_fail = bool(enabled)
-
-    def _fault_active(self) -> bool:
-        return bool(self._probe_fail) or infra_fault_enabled()
+        self._backend.set_probe_fail(enabled)
 
     async def probe(self) -> dict[str, Any]:
-        if self._fault_active():
-            return {"ok": False, "provider": "mock", "error": "INFRA_UNAVAILABLE"}
-        return {"ok": True, "provider": "mock"}
-
-    def _next_ip(self, region: str) -> str:
-        """Pick a documentation-range address unlikely to collide after process restart.
-
-        The in-memory counter alone restarts at 1 when the API process restarts, but
-        Postgres still holds previously allocated mock IPs — salt with uuid entropy.
-        """
-        n = next(self._ip_counter)
-        salt = int(uuid4().hex[:8], 16)
-        host = ((n + salt) % 254) + 1
-        if (n + salt) % 2 == 0:
-            return f"203.0.113.{host}"
-        return f"198.51.100.{host}"
+        return await self._backend.probe()
 
     async def create_ip(self, region: str, **kwargs: Any) -> dict[str, Any]:
-        if self._fault_active():
-            raise MockInfrastructureError(
-                "INFRA_UNAVAILABLE",
-                "Mock infrastructure injected fault (probe/create_ip)",
-                status=503,
-            )
-        external_id = f"mock-ip-{uuid4().hex[:12]}"
-        # Avoid reusing addresses already tracked in this process.
-        used = {r.get("ip_address") for r in self._ips.values()}
-        ip_address = self._next_ip(region)
-        for _ in range(32):
-            if ip_address not in used:
-                break
-            ip_address = self._next_ip(region)
-        resource = {
-            "id": external_id,
-            "external_id": external_id,
-            "ip_address": ip_address,
-            "region": region,
-            "status": "allocated",
-            "provider": "mock",
-        }
-        self._ips[external_id] = resource
-        return dict(resource)
+        return await self._backend.create_ip(region, **kwargs)
 
     async def delete_ip(self, external_id: str) -> None:
-        if external_id in self._ips:
-            self._ips[external_id]["status"] = "released"
+        await self._backend.delete_ip(external_id)
 
     async def attach_ip(self, external_id: str, instance_external_id: str) -> None:
-        ip = self._ips.get(external_id)
-        if ip is None:
-            # Allow attach even if not tracked in-memory (DB is source of truth)
-            self._ips[external_id] = {
-                "external_id": external_id,
-                "status": "attached",
-                "instance_external_id": instance_external_id,
-            }
-        else:
-            ip["status"] = "attached"
-            ip["instance_external_id"] = instance_external_id
+        await self._backend.attach_ip(external_id, instance_external_id)
 
     async def detach_ip(self, external_id: str) -> None:
-        ip = self._ips.get(external_id)
-        if ip is not None:
-            ip["status"] = "detached"
-            ip.pop("instance_external_id", None)
+        await self._backend.detach_ip(external_id)
 
     async def create_instance(self, region: str, **kwargs: Any) -> dict[str, Any]:
-        external_id = f"mock-inst-{uuid4().hex[:12]}"
-        resource = {
-            "id": external_id,
-            "external_id": external_id,
-            "region": region,
-            "status": "running",
-            "provider": "mock",
-            "label": kwargs.get("label") or f"Lab Instance {region}",
-        }
-        self._instances[external_id] = resource
-        return dict(resource)
+        return await self._backend.create_instance(region, **kwargs)
 
     async def destroy_instance(self, external_id: str) -> None:
-        if external_id in self._instances:
-            self._instances[external_id]["status"] = "destroyed"
+        await self._backend.destroy_instance(external_id)
+
+    async def suspend_instance(self, external_id: str) -> None:
+        await self._backend.suspend_instance(external_id)
+
+    async def start_instance(self, external_id: str) -> None:
+        await self._backend.start_instance(external_id)
+
+    async def set_auto_renew(self, resource_id: str, enabled: bool) -> None:
+        await self._backend.set_auto_renew(resource_id, enabled)
+
+    async def list_ips(self, region: str | None = None) -> list[dict[str, Any]]:
+        return await self._backend.list_ips(region)
+
+    async def get_ip(self, external_id: str) -> dict[str, Any] | None:
+        return await self._backend.get_ip(external_id)

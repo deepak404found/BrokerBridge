@@ -1,3 +1,15 @@
+# BrokerBridge Local Lab
+#
+# Cold-start default: MOCK_INFRA_BACKEND=database (CI/Render-safe when no socket).
+# Local Lab mounts the host Docker socket so Admin can activate mock_backend=docker
+# without a separate override file. Runtime DB config wins over .env after activate.
+#
+# SECURITY: Mounting /var/run/docker.sock lets api/worker control the host Docker daemon.
+# Use only on trusted local machines — never on shared/prod hosts. Render must keep
+# MOCK_INFRA_BACKEND=database and must NOT mount a Docker socket.
+#
+# Opt-in force docker backend env: docker-compose.docker-infra.yml (sets MOCK_INFRA_BACKEND=docker).
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -63,6 +75,13 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      # Default mock backend (override in .env or Admin Runtime Config).
+      MOCK_INFRA_BACKEND: ${MOCK_INFRA_BACKEND:-database}
+      DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
+    volumes:
+      # Local Lab: enable mock_backend=docker probe/create without overlay compose.
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy
@@ -88,6 +107,11 @@ services:
     command: ["python", "-m", "app.workers.main"]
     env_file:
       - .env
+    environment:
+      MOCK_INFRA_BACKEND: ${MOCK_INFRA_BACKEND:-database}
+      DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy

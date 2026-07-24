@@ -11,7 +11,12 @@ from app.config.settings import Settings, get_settings
 from app.core.crypto import decrypt_secret
 from app.models.provider_config import ProviderConfig, ProviderKind, ProviderScope, ProviderStatus
 from app.providers.broker.mock import MockBrokerProvider
+from app.providers.infrastructure.docker_util import (
+    DOCKER_SOCKET_HINT,
+    docker_engine_available,
+)
 from app.providers.infrastructure.mock import MockInfrastructureProvider
+from app.providers.infrastructure.vultr import VultrProvider
 from app.providers.kafka_event import KafkaEventProvider
 from app.providers.memory import (
     MemoryCache,
@@ -32,7 +37,10 @@ class ProviderManager:
         self._cache: dict[str, Any] = {}
         self._redis = None
         self._event_version: int | None = None
+        self._infra_version: int | None = None
         self._stale: list[Any] = []
+        # When configured mock_backend=docker but Engine/socket unavailable.
+        self._infra_degraded: dict[str, Any] | None = None
 
     def invalidate(self, kind: str | None = None) -> None:
         if kind is None:
@@ -41,6 +49,8 @@ class ProviderManager:
                     self._stale.append(provider)
             self._cache.clear()
             self._event_version = None
+            self._infra_version = None
+            self._infra_degraded = None
             return
         if kind == "event":
             old = self._cache.pop("event", None)
@@ -53,6 +63,9 @@ class ProviderManager:
         self._cache.pop(cache_key, None)
         if kind != cache_key:
             self._cache.pop(kind, None)
+        if cache_key == "infrastructure" or kind == "infrastructure":
+            self._infra_version = None
+            self._infra_degraded = None
 
     async def _close_stale(self) -> None:
         while self._stale:
@@ -100,15 +113,138 @@ class ProviderManager:
         row = await self._active_row(session, kind)
         return row.provider_type if row else None
 
+    async def _load_infra_secrets(self, row: ProviderConfig) -> dict[str, Any]:
+        public = dict(row.config_non_secret or {})
+        if not row.config_encrypted:
+            return public
+        try:
+            raw = decrypt_secret(row.config_encrypted, self.settings)
+            secrets = json.loads(raw) if raw else {}
+            if isinstance(secrets, dict):
+                public.update(secrets)
+        except Exception:  # noqa: BLE001
+            logger.warning("infra_config_decrypt_failed version=%s", row.version)
+        return public
+
+    def _resolve_mock_backend(self, config: dict[str, Any] | None = None) -> str:
+        cfg = config or {}
+        backend = (
+            str(cfg.get("mock_backend") or "").strip().lower()
+            or (self.settings.mock_infra_backend or "").strip().lower()
+            or "database"
+        )
+        if backend not in {"database", "docker"}:
+            backend = "database"
+        return backend
+
+    def _build_mock_infra(
+        self,
+        backend: str,
+        *,
+        allow_docker_fallback: bool = True,
+    ) -> MockInfrastructureProvider:
+        docker_host = (self.settings.docker_host or "").strip() or None
+        resolved = backend
+        self._infra_degraded = None
+        if resolved == "docker" and allow_docker_fallback:
+            ok, err = docker_engine_available(docker_host)
+            if not ok:
+                msg = err or DOCKER_SOCKET_HINT
+                logger.warning(
+                    "mock_docker_unavailable falling_back=database hint=%s",
+                    msg,
+                )
+                self._infra_degraded = {
+                    "configured_backend": "docker",
+                    "effective_backend": "database",
+                    "message": msg,
+                }
+                resolved = "database"
+
+        session_factory = None
+        if resolved == "database":
+            try:
+                from app.db.session import get_session_factory
+
+                session_factory = get_session_factory()
+            except Exception:  # noqa: BLE001
+                session_factory = None
+        return MockInfrastructureProvider(
+            backend=resolved,
+            session_factory=session_factory,
+            docker_host=docker_host,
+        )
+
+    def _build_vultr(self, config: dict[str, Any]) -> VultrProvider:
+        api_key = str(config.get("api_key") or self.settings.vultr_api_key or "").strip()
+        region = str(
+            config.get("default_region")
+            or config.get("region")
+            or self.settings.vultr_default_region
+            or "ewr"
+        ).strip()
+        return VultrProvider(api_key=api_key, default_region=region)
+
     async def get_infrastructure_provider(self, session: AsyncSession | None = None) -> Any:
-        if "infrastructure" in self._cache:
+        row = await self._active_row(session, ProviderKind.infrastructure)
+        if row is not None:
+            if "infrastructure" in self._cache and self._infra_version == row.version:
+                return self._cache["infrastructure"]
+            config = await self._load_infra_secrets(row)
+            ptype = (row.provider_type or "mock").strip().lower()
+            if ptype == "vultr":
+                provider: Any = self._build_vultr(config)
+            else:
+                backend = self._resolve_mock_backend(config)
+                provider = self._build_mock_infra(backend)
+            self._cache["infrastructure"] = provider
+            self._infra_version = row.version
+            return provider
+
+        if "infrastructure" in self._cache and self._infra_version == -1:
             return self._cache["infrastructure"]
-        ptype = await self._active_type(session, ProviderKind.infrastructure)
-        if not ptype:
-            ptype = self.settings.infra_provider
-        provider = MockInfrastructureProvider() if ptype == "mock" else MockInfrastructureProvider()
+
+        ptype = (self.settings.infra_provider or "mock").strip().lower()
+        if ptype == "vultr":
+            provider = self._build_vultr(
+                {
+                    "api_key": self.settings.vultr_api_key,
+                    "default_region": self.settings.vultr_default_region,
+                }
+            )
+        else:
+            provider = self._build_mock_infra(self._resolve_mock_backend())
         self._cache["infrastructure"] = provider
+        self._infra_version = -1
         return provider
+
+    async def describe_infrastructure(self, session: AsyncSession | None = None) -> dict[str, Any]:
+        """Admin/status helper: active type + mock backend without exposing secrets."""
+        row = await self._active_row(session, ProviderKind.infrastructure)
+        provider = await self.get_infrastructure_provider(session)
+        ptype = row.provider_type if row else (self.settings.infra_provider or "mock")
+        version = row.version if row else None
+        effective = getattr(provider, "backend_name", None)
+        configured = effective
+        if row is not None and str(ptype).lower() == "mock":
+            configured = self._resolve_mock_backend(dict(row.config_non_secret or {}))
+        elif str(ptype).lower() == "mock":
+            configured = self._resolve_mock_backend()
+        degraded = self._infra_degraded
+        return {
+            "provider_type": ptype,
+            "version": version,
+            "backend": effective,
+            "configured_backend": configured,
+            "effective_backend": effective,
+            "degraded": bool(degraded),
+            "degrade_message": (degraded or {}).get("message"),
+            "label": (
+                f"mock ({effective})"
+                if str(ptype).lower() == "mock" and effective
+                else str(ptype)
+            ),
+        }
 
     async def get_broker_provider(self, session: AsyncSession | None = None) -> Any:
         if "broker" in self._cache:

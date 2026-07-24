@@ -11,6 +11,7 @@ from app.api.routes import (
     infrastructure,
     monitoring,
     orders,
+    subscriptions,
     ws_events,
 )
 
@@ -23,6 +24,7 @@ api_router.include_router(admin_replay.router)
 api_router.include_router(admin_sim.router)
 api_router.include_router(brokers.router)
 api_router.include_router(infrastructure.router)
+api_router.include_router(subscriptions.router)
 api_router.include_router(monitoring.router)
 api_router.include_router(orders.router)
 api_router.include_router(ws_events.router)

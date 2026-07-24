@@ -7,10 +7,48 @@
   };
   const errNotify = (err) => {
     const code = err.error_code ? `[${err.error_code}] ` : "";
-    notify(code + (err.message || "Request failed"));
+    let msg = err.message || "Request failed";
+    if (err.error_code === "SUBSCRIPTION_EXPIRED" && !/Clients/i.test(msg)) {
+      msg += " → Clients: create/extend an ACTIVE window, then retry Buy.";
+    }
+    notify(code + msg);
   };
 
   let demoClientId = null;
+  let cachedHealth = [];
+  let cachedRates = [];
+  let cachedOrders = [];
+  let filtersBound = false;
+
+  function F() {
+    return window.AdminFilters;
+  }
+
+  function setText(id, v) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = v;
+  }
+
+  function healthBucket(status) {
+    const s = String(status || "").toLowerCase();
+    if (s === "healthy") return "healthy";
+    if (s === "degraded") return "degraded";
+    return "unhealthy";
+  }
+
+  function rateBucket(r) {
+    return Number(r.pressure) >= 10 ? "pressure" : "ok";
+  }
+
+  function bindFiltersOnce() {
+    if (filtersBound || !F()) return;
+    filtersBound = true;
+    F().bindStatCard(document.getElementById("w3-health-kpi-healthy"), "broker-health", "healthy", () => renderHealth());
+    F().bindStatCard(document.getElementById("w3-health-kpi-degraded"), "broker-health", "degraded", () => renderHealth());
+    F().bindStatCard(document.getElementById("w3-health-kpi-unhealthy"), "broker-health", "unhealthy", () => renderHealth());
+    F().bindStatCard(document.getElementById("w3-rate-kpi-ok"), "rate-limits", "ok", () => renderRates());
+    F().bindStatCard(document.getElementById("w3-rate-kpi-pressure"), "rate-limits", "pressure", () => renderRates());
+  }
 
   function newClientOrderId(side) {
     const stamp = Date.now();
@@ -37,14 +75,64 @@
     }
   }
 
+  function subscriptionCoversNow(sub) {
+    if (!sub || String(sub.status).toLowerCase() !== "active") return false;
+    if (sub.teardown_completed_at) return false;
+    const now = Date.now();
+    const starts = Date.parse(sub.starts_at);
+    const ends = Date.parse(sub.ends_at);
+    if (Number.isNaN(starts) || Number.isNaN(ends)) return false;
+    return starts <= now && now <= ends;
+  }
+
   async function resolveDemoClientId() {
     if (demoClientId) return demoClientId;
+    try {
+      const subsPayload = await api().json("/subscriptions?limit=50&offset=0");
+      const subs = Array.isArray(subsPayload.items)
+        ? subsPayload.items
+        : Array.isArray(subsPayload)
+          ? subsPayload
+          : [];
+      const covering = subs.find(subscriptionCoversNow);
+      if (covering && covering.client_id) {
+        demoClientId = covering.client_id;
+        return demoClientId;
+      }
+    } catch (_) {
+      /* fall through to brokers */
+    }
     const brokers = api().asItems(await api().json("/brokers"));
     if (brokers.length) {
       demoClientId = brokers[0].client_id;
       return demoClientId;
     }
     throw new Error("No demo client — seed brokers missing");
+  }
+
+  function readClientIdField() {
+    const el = document.getElementById("w3-order-client-id");
+    return (el && el.value && el.value.trim()) || "";
+  }
+
+  async function resolveOrderClientId() {
+    const fromForm = readClientIdField();
+    if (fromForm) return fromForm;
+    const clientId = await resolveDemoClientId();
+    const el = document.getElementById("w3-order-client-id");
+    if (el) el.value = clientId;
+    return clientId;
+  }
+
+  async function ensureClientIdField() {
+    const el = document.getElementById("w3-order-client-id");
+    if (!el) return;
+    if (el.value && el.value.trim()) return;
+    try {
+      el.value = await resolveDemoClientId();
+    } catch (_) {
+      /* leave blank until seed/brokers available */
+    }
   }
 
   function healthBadge(status) {
@@ -59,11 +147,31 @@
 
   async function loadHealth() {
     await ensureAuth();
-    const rows = await api().json("/monitoring/brokers/health");
+    bindFiltersOnce();
+    cachedHealth = await api().json("/monitoring/brokers/health");
+    if (!Array.isArray(cachedHealth)) cachedHealth = [];
+    setText("w3-health-healthy", String(cachedHealth.filter((r) => healthBucket(r.status) === "healthy").length));
+    setText("w3-health-degraded", String(cachedHealth.filter((r) => healthBucket(r.status) === "degraded").length));
+    setText("w3-health-unhealthy", String(cachedHealth.filter((r) => healthBucket(r.status) === "unhealthy").length));
+    if (F()) F().applySeed("broker-health", () => renderHealth());
+    renderHealth();
+  }
+
+  function renderHealth() {
     const tbody = document.getElementById("w3-health-tbody");
     if (!tbody) return;
-    if (!rows.length) {
+    const filter = F() ? F().get("broker-health") : null;
+    if (F()) {
+      F().syncCardStyles("broker-health");
+      F().updateChip("broker-health");
+    }
+    if (!cachedHealth.length) {
       tbody.innerHTML = `<tr><td colspan="7" class="py-6 px-4 text-center text-gray-500">No health snapshots yet — Probe now.</td></tr>`;
+      return;
+    }
+    const rows = filter ? cachedHealth.filter((r) => healthBucket(r.status) === filter) : cachedHealth;
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="py-6 px-4 text-center text-gray-500">No rows match filter.</td></tr>`;
       return;
     }
     tbody.innerHTML = rows
@@ -75,7 +183,7 @@
           <td class="py-3 px-4">${Number(r.latency_ms).toFixed(2)} ms</td>
           <td class="py-3 px-4">${(Number(r.success_rate) * 100).toFixed(0)}%</td>
           <td class="py-3 px-4">${Number(r.ip_health).toFixed(0)}</td>
-          <td class="py-3 px-4 text-gray-400">${r.measured_at ? new Date(r.measured_at).toLocaleString() : "—"}</td>
+          <td class="py-3 px-4 text-gray-400">${r.measured_at ? (api().formatTs ? api().formatTs(r.measured_at) : new Date(r.measured_at).toLocaleString()) : "—"}</td>
         </tr>`,
       )
       .join("");
@@ -94,11 +202,30 @@
 
   async function loadRateLimits() {
     await ensureAuth();
-    const rows = await api().json("/monitoring/rate-limits");
+    bindFiltersOnce();
+    cachedRates = await api().json("/monitoring/rate-limits");
+    if (!Array.isArray(cachedRates)) cachedRates = [];
+    setText("w3-rate-ok", String(cachedRates.filter((r) => rateBucket(r) === "ok").length));
+    setText("w3-rate-pressure", String(cachedRates.filter((r) => rateBucket(r) === "pressure").length));
+    if (F()) F().applySeed("rate-limits", () => renderRates());
+    renderRates();
+  }
+
+  function renderRates() {
     const tbody = document.getElementById("w3-rate-tbody");
     if (!tbody) return;
-    if (!rows.length) {
+    const filter = F() ? F().get("rate-limits") : null;
+    if (F()) {
+      F().syncCardStyles("rate-limits");
+      F().updateChip("rate-limits");
+    }
+    if (!cachedRates.length) {
       tbody.innerHTML = `<tr><td colspan="6" class="py-6 px-4 text-center text-gray-500">No brokers.</td></tr>`;
+      return;
+    }
+    const rows = filter ? cachedRates.filter((r) => rateBucket(r) === filter) : cachedRates;
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="py-6 px-4 text-center text-gray-500">No rows match filter.</td></tr>`;
       return;
     }
     tbody.innerHTML = rows
@@ -176,6 +303,8 @@
 
   async function loadOrders() {
     await ensureAuth();
+    bindFiltersOnce();
+    await ensureClientIdField();
     const listPayload = await api().json("/orders?limit=50&offset=0");
     const list = { items: api().asItems(listPayload), ...api().pageMeta(listPayload, 50) };
     const engine = await api().json("/monitoring/orders/engine");
@@ -183,22 +312,84 @@
     if (engineEl) {
       engineEl.textContent = `inflight ${engine.inflight}/${engine.max_inflight} · mode ${engine.execution_mode}`;
     }
-    const tbody = document.getElementById("w3-orders-tbody");
-    if (!tbody) return;
-    const items = list.items || [];
-    if (!items.length) {
-      tbody.innerHTML = `<tr><td colspan="7" class="py-6 px-4 text-center text-gray-500">No orders yet.</td></tr>`;
+    cachedOrders = list.items || [];
+    renderOrderStats();
+    if (F()) F().applySeed("orders", () => renderOrders());
+    renderOrders();
+  }
+
+  function renderOrderStats() {
+    const root = document.getElementById("w3-orders-stats");
+    if (!root) return;
+    const counts = {};
+    cachedOrders.forEach((o) => {
+      const st = o.status || "UNKNOWN";
+      counts[st] = (counts[st] || 0) + 1;
+    });
+    const preferred = ["SUBMITTED", "SUBMITTING", "FAILED", "CANCELLED", "FILLED", "CREATED", "INDOUBT", "REJECTED"];
+    const keys = [
+      ...preferred.filter((k) => counts[k]),
+      ...Object.keys(counts)
+        .filter((k) => !preferred.includes(k))
+        .sort(),
+    ].slice(0, 6);
+    if (!keys.length) {
+      root.innerHTML = `<div class="glass-panel rounded-xl p-4 text-xs text-gray-500 col-span-2 md:col-span-4">No order statuses yet.</div>`;
       return;
     }
+    root.innerHTML = keys
+      .map(
+        (k) => `<div id="w3-orders-kpi-${k}" class="glass-panel p-4 rounded-xl" data-order-status="${k}">
+          <div class="text-xs text-gray-400">${k}</div>
+          <div class="text-2xl font-bold text-white font-mono mt-1">${counts[k]}</div>
+          <div class="text-[10px] text-gray-400 mt-1">Click to filter · again to clear</div>
+        </div>`,
+      )
+      .join("");
+    if (F()) {
+      keys.forEach((k) => {
+        F().bindStatCard(document.getElementById(`w3-orders-kpi-${k}`), "orders", k, () => renderOrders());
+      });
+      F().syncCardStyles("orders");
+    }
+  }
+
+  function renderOrders() {
+    const tbody = document.getElementById("w3-orders-tbody");
+    if (!tbody) return;
+    const filter = F() ? F().get("orders") : null;
+    if (F()) {
+      F().syncCardStyles("orders");
+      F().updateChip("orders");
+    }
+    if (!cachedOrders.length) {
+      tbody.innerHTML = `<tr><td colspan="9" class="py-6 px-4 text-center text-gray-500">No orders yet.</td></tr>`;
+      return;
+    }
+    const items = filter ? cachedOrders.filter((o) => o.status === filter) : cachedOrders;
+    if (!items.length) {
+      tbody.innerHTML = `<tr><td colspan="9" class="py-6 px-4 text-center text-gray-500">No orders match filter.</td></tr>`;
+      return;
+    }
+    const fmt = (v) => (api().formatTs ? api().formatTs(v) : v || "—");
+    const copyBtn = (text, title) =>
+      api().copyButtonHtml ? api().copyButtonHtml(text, title) : "";
     tbody.innerHTML = items
       .map(
         (o) => `<tr class="hover:bg-white/5" data-order-id="${o.id}">
-          <td class="py-3 px-4">${o.client_order_id}</td>
+          <td class="py-3 px-4">
+            <span class="inline-flex items-center gap-1.5 max-w-full">
+              <span class="truncate" title="${o.client_order_id}">${o.client_order_id}</span>
+              ${copyBtn(o.client_order_id, "Copy client order ID")}
+            </span>
+          </td>
           <td class="py-3 px-4">${o.side}</td>
           <td class="py-3 px-4">${o.symbol}</td>
           <td class="py-3 px-4">${o.quantity}</td>
           <td class="py-3 px-4 font-sans">${o.status}</td>
           <td class="py-3 px-4 text-gray-400">${o.broker_account_id ? String(o.broker_account_id).slice(0, 8) : "—"}</td>
+          <td class="py-3 px-4 text-gray-400 whitespace-nowrap">${fmt(o.created_at)}</td>
+          <td class="py-3 px-4 text-gray-400 whitespace-nowrap">${fmt(o.updated_at)}</td>
           <td class="py-3 px-4 text-right font-sans">
             ${
               o.status === "SUBMITTED" || o.status === "SUBMITTING"
@@ -230,7 +421,7 @@
   async function placeSide(side) {
     try {
       await ensureAuth();
-      const clientId = await resolveDemoClientId();
+      const clientId = await resolveOrderClientId();
       const idInput = document.getElementById("w3-order-client-order-id");
       let clientOrderId = (idInput && idInput.value && idInput.value.trim()) || "";
       if (!clientOrderId) {
@@ -271,6 +462,7 @@
     routing: loadRouting,
     orders: async () => {
       fillClientOrderId();
+      await ensureClientIdField();
       await loadOrders();
     },
   };

@@ -64,6 +64,31 @@ async def drain_watcher_loop(*, interval_seconds: float = 15.0) -> None:
         await asyncio.sleep(interval_seconds)
 
 
+async def subscription_expiry_loop(*, interval_seconds: float = 30.0) -> None:
+    """Enforce BR-G07 subscription expiry teardown on an interval."""
+    from app.subscriptions.service import SubscriptionService
+
+    settings = get_settings()
+    configure_engine(settings.database_url)
+    factory = get_session_factory()
+    manager = get_provider_manager()
+    logger.info("subscription_expiry_scheduler_started")
+    while True:
+        try:
+            async with factory() as session:
+                svc = SubscriptionService(session, settings, manager)
+                stats = await svc.enforce_expiry()
+                if stats.get("expired"):
+                    logger.info(
+                        "subscription_expiry expired=%s torn_down=%s",
+                        stats["expired"],
+                        stats.get("instances_torn_down"),
+                    )
+        except Exception:  # noqa: BLE001
+            logger.exception("subscription_expiry_tick_failed")
+        await asyncio.sleep(interval_seconds)
+
+
 async def async_main() -> None:
     settings = get_settings()
     setup_logging(settings.log_level)
@@ -75,6 +100,7 @@ async def async_main() -> None:
             outbox_publisher_loop(),
             event_consumer_loop(group_suffix="", stop_event=stop),
             drain_watcher_loop(),
+            subscription_expiry_loop(),
         )
     finally:
         stop.set()

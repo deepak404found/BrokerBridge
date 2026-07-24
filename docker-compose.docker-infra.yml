@@ -1,0 +1,19 @@
+# Optional overlay: force MOCK_INFRA_BACKEND=docker at cold start.
+# Socket mount + DOCKER_HOST are already in docker-compose.yml for Local Lab.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.docker-infra.yml up --build
+#
+# SECURITY WARNING: api and worker control the host Docker daemon via the socket.
+# Local-dev privilege only — never enable on shared/production hosts.
+
+services:
+  api:
+    environment:
+      MOCK_INFRA_BACKEND: docker
+      DOCKER_HOST: unix:///var/run/docker.sock
+
+  worker:
+    environment:
+      MOCK_INFRA_BACKEND: docker
+      DOCKER_HOST: unix:///var/run/docker.sock

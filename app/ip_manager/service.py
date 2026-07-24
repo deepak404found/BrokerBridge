@@ -44,17 +44,31 @@ class IpManagerService:
         region: str,
         label: str | None = None,
     ) -> Instance:
+        from app.providers.infrastructure.mock import MockInfrastructureError
+
         infra = await self.providers.get_infrastructure_provider(self.db)
-        resource = await infra.create_instance(region, label=label)
+        try:
+            resource = await infra.create_instance(region, label=label)
+        except MockInfrastructureError as exc:
+            raise AppError(
+                exc.code,
+                exc.message,
+                status_code=int(exc.status),
+            ) from exc
         short = resource["external_id"].rsplit("-", 1)[-1][:8]
         display = (label or "").strip() or f"Lab Instance {region}-{short}"
+        provider_label = str(resource.get("provider") or "mock")
         row = Instance(
             client_id=client_id,
-            provider="mock",
+            provider=provider_label,
             external_id=resource["external_id"],
             region=region,
             status=resource.get("status", "running"),
-            metadata_json={"label": display},
+            auto_renew=bool(resource.get("auto_renew", True)),
+            metadata_json={
+                "label": display,
+                "backend": resource.get("backend"),
+            },
         )
         self.db.add(row)
         await self.db.commit()
@@ -62,14 +76,69 @@ class IpManagerService:
         return row
 
     async def destroy_instance(self, instance_id: uuid.UUID) -> None:
+        from app.providers.infrastructure.mock import MockInfrastructureError
+
         result = await self.db.execute(select(Instance).where(Instance.id == instance_id))
         row = result.scalar_one_or_none()
         if row is None:
             raise AppError("NOT_FOUND", "Instance not found", status_code=404)
         infra = await self.providers.get_infrastructure_provider(self.db)
-        await infra.destroy_instance(row.external_id)
+        try:
+            await infra.destroy_instance(row.external_id)
+        except MockInfrastructureError as exc:
+            raise AppError(exc.code, exc.message, status_code=int(exc.status)) from exc
         row.status = "destroyed"
         await self.db.commit()
+
+    async def suspend_instance(self, instance_id: uuid.UUID) -> Instance:
+        from app.providers.infrastructure.mock import MockInfrastructureError
+
+        result = await self.db.execute(select(Instance).where(Instance.id == instance_id))
+        row = result.scalar_one_or_none()
+        if row is None:
+            raise AppError("NOT_FOUND", "Instance not found", status_code=404)
+        if row.status == "destroyed":
+            raise AppError("INVALID_STATE", "Instance is destroyed", status_code=409)
+        infra = await self.providers.get_infrastructure_provider(self.db)
+        try:
+            await infra.suspend_instance(row.external_id)
+        except MockInfrastructureError as exc:
+            raise AppError(exc.code, exc.message, status_code=int(exc.status)) from exc
+        row.status = "suspended"
+        await self.db.commit()
+        await self.db.refresh(row)
+        return row
+
+    async def start_instance(self, instance_id: uuid.UUID) -> Instance:
+        from app.providers.infrastructure.mock import MockInfrastructureError
+
+        result = await self.db.execute(select(Instance).where(Instance.id == instance_id))
+        row = result.scalar_one_or_none()
+        if row is None:
+            raise AppError("NOT_FOUND", "Instance not found", status_code=404)
+        if row.status == "destroyed":
+            raise AppError("INVALID_STATE", "Instance is destroyed", status_code=409)
+        infra = await self.providers.get_infrastructure_provider(self.db)
+        try:
+            await infra.start_instance(row.external_id)
+        except MockInfrastructureError as exc:
+            raise AppError(exc.code, exc.message, status_code=int(exc.status)) from exc
+        row.status = "running"
+        await self.db.commit()
+        await self.db.refresh(row)
+        return row
+
+    async def set_auto_renew(self, instance_id: uuid.UUID, enabled: bool) -> Instance:
+        result = await self.db.execute(select(Instance).where(Instance.id == instance_id))
+        row = result.scalar_one_or_none()
+        if row is None:
+            raise AppError("NOT_FOUND", "Instance not found", status_code=404)
+        infra = await self.providers.get_infrastructure_provider(self.db)
+        await infra.set_auto_renew(row.external_id, enabled)
+        row.auto_renew = bool(enabled)
+        await self.db.commit()
+        await self.db.refresh(row)
+        return row
 
     async def list_instances(self) -> list[Instance]:
         result = await self.db.execute(select(Instance).order_by(Instance.created_at.desc()))
@@ -91,14 +160,15 @@ class IpManagerService:
                     exc.message,
                     status_code=int(exc.status),
                 ) from exc
+            provider_label = str(resource.get("provider") or "mock")
             row = StaticIp(
-                provider="mock",
+                provider=provider_label,
                 external_id=resource["external_id"],
                 ip_address=resource["ip_address"],
                 region=region,
                 status="allocated",
                 health_score=100,
-                metadata_json={},
+                metadata_json={"backend": resource.get("backend")},
             )
             self.db.add(row)
             try:

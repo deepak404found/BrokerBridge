@@ -12,6 +12,26 @@ Commit + changelog updates happen **after wave testing**, only with user approva
 
 - Planning artifacts continue under `docs/plans/` for upcoming waves
 
+## [0.7.0] - 2026-07-24
+
+### Added
+
+- Infrastructure provider tree: mock backends (`docker` | `database`) plus real Vultr adapter; domain still talks protocol only
+- Optional Docker socket Local Lab path (`docker-compose.docker-infra.yml`) for container-backed mock instances
+- Subscription model with expiry teardown (auto-renew off, suspend/destroy, block trading); trading allowed again after re-create
+- Admin Instances page; clickable Dashboard KPI filters; Clients copy polish; Orders form polish; probe/toast fixes
+- Alembic `005_w6` for subscriptions + mock infra tables; dual-mode compose E2E scripts
+- Demo docs: interviewer checklist, load notes, Render deploy guide
+- Pytest for infra protocol, mock docker/database, Vultr provider, subscription expiry
+
+### Who / Where
+
+- Who: deepak404found
+- Where: branch `main`
+
+See `docs/changelogs/WAVE-06.md` for detail.
+
+
 ## [0.6.0] - 2026-07-24
 
 ### Added

@@ -35,7 +35,13 @@ class Settings(BaseSettings):
     seed_admin_email: str = Field(default="admin@brokerbridge.local", validation_alias="SEED_ADMIN_EMAIL")
     seed_admin_password: str = Field(default="admin123!", validation_alias="SEED_ADMIN_PASSWORD")
     infra_provider: str = Field(default="mock", validation_alias="INFRA_PROVIDER")
+    # Safe default for CI/Render; Local Lab may set docker when socket is mounted.
+    mock_infra_backend: str = Field(default="database", validation_alias="MOCK_INFRA_BACKEND")
+    vultr_api_key: str = Field(default="", validation_alias="VULTR_API_KEY")
+    vultr_default_region: str = Field(default="ewr", validation_alias="VULTR_DEFAULT_REGION")
+    docker_host: str = Field(default="", validation_alias="DOCKER_HOST")
     broker_provider: str = Field(default="mock", validation_alias="BROKER_PROVIDER")
+
     lock_provider: str = Field(default="memory", validation_alias="LOCK_PROVIDER")
     session_provider: str = Field(default="memory", validation_alias="SESSION_PROVIDER")
     rate_limit_provider: str = Field(default="memory", validation_alias="RATE_LIMIT_PROVIDER")

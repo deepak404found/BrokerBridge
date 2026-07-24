@@ -30,6 +30,23 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     async with factory() as session:
         await seed_defaults(session, settings)
+        # Resolve infra once so docker→database fallback logs are visible at boot.
+        try:
+            from app.providers.manager import get_provider_manager
+
+            mgr = get_provider_manager()
+            desc = await mgr.describe_infrastructure(session)
+            if desc.get("degraded"):
+                import logging
+
+                logging.getLogger("brokerbridge.providers").warning(
+                    "infra_degraded_at_startup configured=%s effective=%s message=%s",
+                    desc.get("configured_backend"),
+                    desc.get("effective_backend"),
+                    desc.get("degrade_message"),
+                )
+        except Exception:  # noqa: BLE001
+            pass
 
     from app.events.consumer import event_consumer_loop
 

@@ -143,6 +143,34 @@ async def destroy_instance(
 
 
 @router.post(
+    "/instances/{instance_id}/suspend",
+    response_model=InstanceResponse,
+    summary="Suspend instance (FR-08)",
+    responses=NOT_FOUND,
+)
+async def suspend_instance(
+    instance_id: UUID,
+    _: Annotated[User, Depends(require_roles("admin", "ops"))],
+    svc: Annotated[IpManagerService, Depends(_ip_svc)],
+) -> InstanceResponse:
+    return InstanceResponse.model_validate(await svc.suspend_instance(instance_id))
+
+
+@router.post(
+    "/instances/{instance_id}/start",
+    response_model=InstanceResponse,
+    summary="Start / resume suspended instance",
+    responses=NOT_FOUND,
+)
+async def start_instance(
+    instance_id: UUID,
+    _: Annotated[User, Depends(require_roles("admin", "ops"))],
+    svc: Annotated[IpManagerService, Depends(_ip_svc)],
+) -> InstanceResponse:
+    return InstanceResponse.model_validate(await svc.start_instance(instance_id))
+
+
+@router.post(
     "/ips",
     response_model=StaticIpResponse,
     status_code=status.HTTP_201_CREATED,

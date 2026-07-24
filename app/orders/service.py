@@ -135,6 +135,12 @@ class OrderService:
         region_preference: str | None = None,
     ) -> tuple[Order, bool]:
         """Place an order. Returns (order, created). created=False means idempotent replay."""
+        from app.subscriptions.service import SubscriptionService
+
+        await SubscriptionService(self.db, self.settings, self.providers).assert_trading_allowed(
+            client_id
+        )
+
         existing = await self.db.execute(
             select(Order).where(
                 Order.client_id == client_id,

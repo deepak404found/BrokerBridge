@@ -62,3 +62,8 @@ class ProviderConfigResponse(BaseModel):
         default=None,
         examples=["2026-07-23T12:00:00Z"],
     )
+    # Runtime resolution (infrastructure only): may differ from config.mock_backend
+    # when docker is configured but the Engine/socket is unavailable.
+    effective_backend: str | None = Field(default=None, examples=["database"])
+    degraded: bool = Field(default=False, examples=[False])
+    degrade_message: str | None = Field(default=None)
