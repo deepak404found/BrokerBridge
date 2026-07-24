@@ -68,11 +68,81 @@ window.BrokerBridgeApi = {
   const passwordInput = document.getElementById("login-password");
   const submitBtn = document.getElementById("login-submit");
 
-  function setSignedInUser(email) {
-    const label = document.getElementById("sidebar-user-email");
-    const name = document.getElementById("sidebar-user-name");
-    if (label) label.textContent = email || "admin@brokerbridge.local";
-    if (name) name.textContent = "Admin";
+  const USER_EMAIL_KEY = "bb_admin_email";
+  const USER_ROLE_KEY = "bb_admin_role";
+
+  function titleCaseRole(role) {
+    if (!role) return "User";
+    return String(role)
+      .split(/[_\s-]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(" ");
+  }
+
+  function initialsFromEmail(email) {
+    if (!email) return "—";
+    const local = String(email).split("@")[0] || "";
+    const parts = local.split(/[._-]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return local.slice(0, 2).toUpperCase() || "—";
+  }
+
+  function decodeJwtPayload(token) {
+    try {
+      const part = String(token || "").split(".")[1];
+      if (!part) return null;
+      const b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+      const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+      return JSON.parse(atob(padded));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function clearSignedInUser() {
+    localStorage.removeItem(USER_EMAIL_KEY);
+    localStorage.removeItem(USER_ROLE_KEY);
+    const emailEl = document.getElementById("sidebar-user-email");
+    const nameEl = document.getElementById("sidebar-user-name");
+    const roleEl = document.getElementById("sidebar-user-role");
+    const initialsEl = document.getElementById("sidebar-user-initials");
+    if (emailEl) emailEl.textContent = "—";
+    if (nameEl) nameEl.textContent = "Signed out";
+    if (roleEl) roleEl.textContent = "—";
+    if (initialsEl) initialsEl.textContent = "—";
+  }
+
+  function setSignedInUser(email, role) {
+    const displayRole = titleCaseRole(role);
+    const emailEl = document.getElementById("sidebar-user-email");
+    const nameEl = document.getElementById("sidebar-user-name");
+    const roleEl = document.getElementById("sidebar-user-role");
+    const initialsEl = document.getElementById("sidebar-user-initials");
+    if (emailEl) emailEl.textContent = email || "—";
+    if (nameEl) nameEl.textContent = displayRole;
+    if (roleEl) roleEl.textContent = role || "—";
+    if (initialsEl) initialsEl.textContent = initialsFromEmail(email);
+  }
+
+  function persistUser(email, role) {
+    if (email) localStorage.setItem(USER_EMAIL_KEY, email);
+    else localStorage.removeItem(USER_EMAIL_KEY);
+    if (role) localStorage.setItem(USER_ROLE_KEY, role);
+    else localStorage.removeItem(USER_ROLE_KEY);
+  }
+
+  function resolveStoredUser(token) {
+    let email = localStorage.getItem(USER_EMAIL_KEY);
+    let role = localStorage.getItem(USER_ROLE_KEY);
+    const claims = decodeJwtPayload(token);
+    if (!role && claims && claims.role) {
+      role = claims.role;
+      localStorage.setItem(USER_ROLE_KEY, role);
+    }
+    return { email, role };
   }
 
   function applyAuthState() {
@@ -82,12 +152,14 @@ window.BrokerBridgeApi = {
       shell.classList.remove("hidden");
       shell.classList.add("flex");
       document.body.classList.add("admin-authed");
-      setSignedInUser(localStorage.getItem("bb_admin_email") || "admin@brokerbridge.local");
+      const user = resolveStoredUser(token);
+      setSignedInUser(user.email, user.role);
     } else {
       shell.classList.add("hidden");
       shell.classList.remove("flex");
       gate.classList.remove("hidden");
       document.body.classList.remove("admin-authed");
+      clearSignedInUser();
       if (status) {
         status.textContent = "Sign in to open the operations console.";
         status.classList.remove("text-rose-400");
@@ -100,7 +172,7 @@ window.BrokerBridgeApi = {
     applyAuthState,
     logout() {
       window.BrokerBridgeApi.logout();
-      localStorage.removeItem("bb_admin_email");
+      clearSignedInUser();
       applyAuthState();
       if (typeof navigateTo === "function") navigateTo("dashboard");
     },
@@ -118,8 +190,10 @@ window.BrokerBridgeApi = {
       try {
         const email = (emailInput && emailInput.value) || "";
         const password = (passwordInput && passwordInput.value) || "";
-        await window.BrokerBridgeApi.login(email, password);
-        localStorage.setItem("bb_admin_email", email);
+        const data = await window.BrokerBridgeApi.login(email, password);
+        const resolvedEmail = data.email || email;
+        const resolvedRole = data.role || "";
+        persistUser(resolvedEmail, resolvedRole);
         applyAuthState();
         if (typeof showNotification === "function") {
           showNotification("Signed in — Admin console ready");

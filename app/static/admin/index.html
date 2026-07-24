@@ -204,7 +204,7 @@
                 <div class="sidebar-text">
                     <div class="font-bold text-white text-base tracking-tight flex items-center gap-1.5">
                         BrokerBridge
-                        <span class="text-[10px] bg-blue-500/20 text-blue-400 font-mono px-1.5 py-0.5 rounded uppercase font-semibold">v3.18</span>
+                        <span class="text-[10px] bg-blue-500/20 text-blue-400 font-mono px-1.5 py-0.5 rounded uppercase font-semibold">0.3.0</span>
                     </div>
                     <div class="text-[11px] text-gray-400">Gateway Orchestrator</div>
                 </div>
@@ -220,7 +220,6 @@
                 <span class="status-dot bg-blue-500"></span>
                 <span class="text-xs text-gray-300 font-medium">Local Lab</span>
             </div>
-            <span class="text-[11px] font-mono text-gray-400 bg-white/5 px-1.5 py-0.5 rounded">W2 live</span>
         </div>
 
         <!-- Navigation Links -->
@@ -240,7 +239,6 @@
             <a data-page="brokers" onclick="navigateTo('brokers')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
                 <i class="fa-solid fa-server w-5 text-center text-emerald-400"></i>
                 <span class="sidebar-text font-medium">Brokers</span>
-                <span class="ml-auto bg-emerald-500/10 text-emerald-400 text-[10px] px-1.5 py-0.5 rounded sidebar-text font-mono">live</span>
             </a>
 
             <a data-page="orders" onclick="navigateTo('orders')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
@@ -258,7 +256,6 @@
             <a data-page="static-ips" onclick="navigateTo('static-ips')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
                 <i class="fa-solid fa-network-wired w-5 text-center text-indigo-400"></i>
                 <span class="sidebar-text font-medium">Static IPs</span>
-                <span class="ml-auto bg-indigo-500/10 text-indigo-400 text-[10px] px-1.5 py-0.5 rounded sidebar-text font-mono">live</span>
             </a>
 
             <a data-page="infrastructure" onclick="navigateTo('infrastructure')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
@@ -269,7 +266,6 @@
             <a data-page="sessions" onclick="navigateTo('sessions')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
                 <i class="fa-solid fa-key w-5 text-center text-yellow-400"></i>
                 <span class="sidebar-text font-medium">Sessions</span>
-                <span class="ml-auto bg-yellow-500/10 text-yellow-400 text-[10px] px-1.5 py-0.5 rounded sidebar-text font-mono">live</span>
             </a>
 
             <div class="text-[10px] font-bold text-gray-500 uppercase px-3 mt-4 mb-1 sidebar-text tracking-wider">Telemetry & Reliability</div>
@@ -336,12 +332,12 @@
         <!-- User Profile Card in Sidebar Footer -->
         <div class="p-3 border-t border-white/10 bg-dark-900/80 flex items-center justify-between">
             <div class="flex items-center space-x-2.5 overflow-hidden">
-                <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center font-semibold text-white text-xs shrink-0">
-                    AD
+                <div id="sidebar-user-initials" class="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center font-semibold text-white text-xs shrink-0">
+                    —
                 </div>
                 <div class="sidebar-text overflow-hidden">
-                    <div id="sidebar-user-name" class="text-xs font-semibold text-white truncate">Admin</div>
-                    <div id="sidebar-user-email" class="text-[10px] text-gray-400 truncate">admin@brokerbridge.local</div>
+                    <div id="sidebar-user-name" class="text-xs font-semibold text-white truncate">Signed out</div>
+                    <div id="sidebar-user-email" class="text-[10px] text-gray-400 truncate">—</div>
                 </div>
             </div>
             <div class="relative">
@@ -350,7 +346,7 @@
                 </button>
                 <div id="user-dropdown" class="hidden absolute bottom-10 left-0 w-48 bg-dark-700 border border-white/10 rounded-lg shadow-2xl py-1 z-50 text-xs">
                     <div class="px-3 py-2 border-b border-white/5 text-gray-400">
-                        Role: <span class="text-blue-400 font-mono">Platform Admin</span>
+                        Role: <span id="sidebar-user-role" class="text-blue-400 font-mono">—</span>
                     </div>
                     <a href="/docs" target="_blank" rel="noopener noreferrer" class="block px-3 py-2 text-gray-300 hover:bg-white/5">Open Swagger</a>
                     <div class="border-t border-white/5"></div>
