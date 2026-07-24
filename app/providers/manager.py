@@ -18,12 +18,20 @@ class ProviderManager:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self._cache: dict[str, Any] = {}
+        self._redis = None
 
     def invalidate(self, kind: str | None = None) -> None:
         if kind is None:
             self._cache.clear()
         else:
             self._cache.pop(kind, None)
+
+    def _get_redis(self):
+        if self._redis is None:
+            from redis.asyncio import from_url
+
+            self._redis = from_url(self.settings.redis_url, decode_responses=True)
+        return self._redis
 
     async def _active_type(self, session: AsyncSession | None, kind: ProviderKind) -> str | None:
         if session is None:
@@ -65,11 +73,29 @@ class ProviderManager:
     def get_cache_provider(self) -> MemoryCache:
         return self._cache.setdefault("cache", MemoryCache())
 
-    def get_lock_provider(self) -> MemoryLock:
-        return self._cache.setdefault("lock", MemoryLock())
+    def get_lock_provider(self) -> Any:
+        if "lock" in self._cache:
+            return self._cache["lock"]
+        if self.settings.lock_provider == "redis":
+            from app.providers.redis_adapters import RedisLock
 
-    def get_session_provider(self) -> MemorySession:
-        return self._cache.setdefault("session", MemorySession())
+            provider = RedisLock(self._get_redis())
+        else:
+            provider = MemoryLock()
+        self._cache["lock"] = provider
+        return provider
+
+    def get_session_provider(self) -> Any:
+        if "session" in self._cache:
+            return self._cache["session"]
+        if self.settings.session_provider == "redis":
+            from app.providers.redis_adapters import RedisSession
+
+            provider = RedisSession(self._get_redis())
+        else:
+            provider = MemorySession()
+        self._cache["session"] = provider
+        return provider
 
     def get_event_provider(self) -> MemoryEventProvider:
         return self._cache.setdefault("event", MemoryEventProvider())

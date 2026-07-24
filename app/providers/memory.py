@@ -39,6 +39,9 @@ class MemorySession:
     async def set(self, key: str, value: dict[str, Any], ttl_seconds: int | None = None) -> None:
         self._data[key] = value
 
+    async def delete(self, key: str) -> None:
+        self._data.pop(key, None)
+
 
 class MemoryEventProvider:
     def __init__(self) -> None:

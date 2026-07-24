@@ -34,53 +34,107 @@ window.BrokerBridgeApi = {
     );
     const token = this.getToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
+    const method = (options.method || "GET").toUpperCase();
+    if (method === "GET" || method === "HEAD" || options.body == null) {
+      delete headers["Content-Type"];
+    }
     const res = await fetch(this.baseUrl + path, Object.assign({}, options, { headers }));
     return res;
   },
+  async json(path, options = {}) {
+    const res = await this.request(path, options);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = data.message || (data.error && data.error.message) || `HTTP ${res.status}`;
+      const err = new Error(msg);
+      err.status = res.status;
+      err.error_code = data.error_code;
+      err.details = data.details;
+      err.payload = data;
+      throw err;
+    }
+    return data;
+  },
 };
 
-(function mountLoginBar() {
-  if (document.getElementById("bb-login-bar")) return;
-  const bar = document.createElement("div");
-  bar.id = "bb-login-bar";
-  bar.style.cssText =
-    "position:fixed;right:12px;bottom:12px;z-index:9999;background:#121824;border:1px solid rgba(255,255,255,.12);padding:10px 12px;border-radius:8px;font:12px/1.4 Inter,sans-serif;color:#e2e8f0;min-width:240px;box-shadow:0 8px 24px rgba(0,0,0,.45);";
-  bar.innerHTML = `
-    <div style="font-weight:600;margin-bottom:6px;">Admin JWT</div>
-    <div id="bb-login-status" style="margin-bottom:8px;opacity:.85;">Checking…</div>
-    <form id="bb-login-form" style="display:grid;gap:6px;">
-      <input id="bb-email" type="email" placeholder="email" value="admin@brokerbridge.local"
-        style="background:#0c1017;border:1px solid rgba(255,255,255,.12);color:#e2e8f0;padding:6px 8px;border-radius:6px;" />
-      <input id="bb-password" type="password" placeholder="password" value="admin123!"
-        style="background:#0c1017;border:1px solid rgba(255,255,255,.12);color:#e2e8f0;padding:6px 8px;border-radius:6px;" />
-      <div style="display:flex;gap:6px;">
-        <button type="submit" style="flex:1;background:#2563eb;color:#fff;border:0;padding:6px 8px;border-radius:6px;cursor:pointer;">Login</button>
-        <button type="button" id="bb-logout" style="background:#1a2234;color:#e2e8f0;border:1px solid rgba(255,255,255,.12);padding:6px 8px;border-radius:6px;cursor:pointer;">Logout</button>
-      </div>
-    </form>
-  `;
-  document.body.appendChild(bar);
-  const status = document.getElementById("bb-login-status");
-  const refresh = () => {
-    const t = window.BrokerBridgeApi.getToken();
-    status.textContent = t ? "Signed in (token stored)" : "Not signed in";
-  };
-  refresh();
-  document.getElementById("bb-login-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    status.textContent = "Signing in…";
-    try {
-      await window.BrokerBridgeApi.login(
-        document.getElementById("bb-email").value,
-        document.getElementById("bb-password").value,
-      );
-      refresh();
-    } catch (err) {
-      status.textContent = err.message || "Login failed";
+(function mountAuthGate() {
+  const gate = document.getElementById("login-gate");
+  const shell = document.getElementById("admin-shell");
+  if (!gate || !shell) return;
+
+  const form = document.getElementById("login-form");
+  const status = document.getElementById("login-status");
+  const emailInput = document.getElementById("login-email");
+  const passwordInput = document.getElementById("login-password");
+  const submitBtn = document.getElementById("login-submit");
+
+  function setSignedInUser(email) {
+    const label = document.getElementById("sidebar-user-email");
+    const name = document.getElementById("sidebar-user-name");
+    if (label) label.textContent = email || "admin@brokerbridge.local";
+    if (name) name.textContent = "Admin";
+  }
+
+  function applyAuthState() {
+    const token = window.BrokerBridgeApi.getToken();
+    if (token) {
+      gate.classList.add("hidden");
+      shell.classList.remove("hidden");
+      shell.classList.add("flex");
+      document.body.classList.add("admin-authed");
+      setSignedInUser(localStorage.getItem("bb_admin_email") || "admin@brokerbridge.local");
+    } else {
+      shell.classList.add("hidden");
+      shell.classList.remove("flex");
+      gate.classList.remove("hidden");
+      document.body.classList.remove("admin-authed");
+      if (status) {
+        status.textContent = "Sign in to open the operations console.";
+        status.classList.remove("text-rose-400");
+        status.classList.add("text-gray-400");
+      }
     }
-  });
-  document.getElementById("bb-logout").addEventListener("click", () => {
-    window.BrokerBridgeApi.logout();
-    refresh();
-  });
+  }
+
+  window.BrokerBridgeAuth = {
+    applyAuthState,
+    logout() {
+      window.BrokerBridgeApi.logout();
+      localStorage.removeItem("bb_admin_email");
+      applyAuthState();
+      if (typeof navigateTo === "function") navigateTo("dashboard");
+    },
+  };
+
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (status) {
+        status.textContent = "Signing in…";
+        status.classList.remove("text-rose-400");
+        status.classList.add("text-gray-400");
+      }
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        const email = (emailInput && emailInput.value) || "";
+        const password = (passwordInput && passwordInput.value) || "";
+        await window.BrokerBridgeApi.login(email, password);
+        localStorage.setItem("bb_admin_email", email);
+        applyAuthState();
+        if (typeof showNotification === "function") {
+          showNotification("Signed in — Admin console ready");
+        }
+      } catch (err) {
+        if (status) {
+          status.textContent = err.message || "Login failed";
+          status.classList.remove("text-gray-400");
+          status.classList.add("text-rose-400");
+        }
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
+  applyAuthState();
 })();

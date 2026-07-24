@@ -1,15 +1,20 @@
+import json
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.passwords import hash_password
 from app.config.settings import Settings
+from app.core.crypto import encrypt_secret
+from app.models.broker import BrokerAccount
+from app.models.config_item import ConfigurationItem
 from app.models.provider_config import (
     ProviderConfig,
     ProviderKind,
     ProviderScope,
     ProviderStatus,
 )
-from app.models.user import User, UserRole
+from app.models.user import Client, User, UserRole
 
 
 async def seed_defaults(session: AsyncSession, settings: Settings) -> None:
@@ -45,4 +50,68 @@ async def seed_defaults(session: AsyncSession, settings: Settings) -> None:
                     config_non_secret={},
                 )
             )
+
+    demo_client = await session.execute(select(Client).where(Client.name == "Demo Lab Client"))
+    client = demo_client.scalar_one_or_none()
+    if client is None:
+        client = Client(name="Demo Lab Client", status="active")
+        session.add(client)
+        await session.flush()
+
+    cooldown = await session.execute(
+        select(ConfigurationItem).where(ConfigurationItem.key == "ip.reuse.cooldown_hours")
+    )
+    if cooldown.scalar_one_or_none() is None:
+        session.add(
+            ConfigurationItem(
+                key="ip.reuse.cooldown_hours",
+                value={"hours": settings.ip_reuse_cooldown_hours},
+                version=1,
+            )
+        )
+
+    brokers = await session.execute(
+        select(BrokerAccount).where(BrokerAccount.client_id == client.id)
+    )
+    if not brokers.scalars().first():
+        creds = encrypt_secret(
+            json.dumps({"api_key": "mock-demo-key", "api_secret": "mock-demo-secret"}),
+            settings,
+        )
+        session.add(
+            BrokerAccount(
+                client_id=client.id,
+                provider_type="mock",
+                display_name="Mock Alpha Broker",
+                priority=10,
+                enabled=True,
+                allowed_regions=["ewr", "ord"],
+                capabilities={
+                    "asset_classes": ["equities"],
+                    "order_types": ["MARKET", "LIMIT"],
+                    "supports_whitelist": True,
+                },
+                credentials_encrypted=creds,
+                rate_limit_rps=50,
+            )
+        )
+        session.add(
+            BrokerAccount(
+                client_id=client.id,
+                provider_type="mock",
+                display_name="Mock Beta Broker",
+                priority=20,
+                enabled=True,
+                allowed_regions=["ewr"],
+                capabilities={
+                    "asset_classes": ["equities", "fx"],
+                    "order_types": ["MARKET"],
+                    "supports_whitelist": True,
+                    "whitelist_format": "xml",
+                },
+                credentials_encrypted=creds,
+                rate_limit_rps=25,
+            )
+        )
+
     await session.commit()

@@ -12,6 +12,27 @@ Commit + changelog updates happen **after wave testing**, only with user approva
 
 - Planning artifacts continue under `docs/plans/` for upcoming waves
 
+## [0.3.0] - 2026-07-24
+
+### Added
+
+- Broker account CRUD, ensure/destroy sessions under Redis locks, and monitoring session list APIs
+- Static IP / instance lifecycle (allocate, assign, release) with BR-G04 reuse cooldown and whitelist sync
+- Alembic `002_w2` models for brokers, sessions, infrastructure, IP history, whitelist, and config items
+- Expanded mock broker/infra providers plus Redis lock and session adapters
+- Admin wiring for Brokers, Sessions, Static IPs, and Whitelist (`js/w2.js`) with login gate
+- Static IPs UX: display_name labels, status-aware actions/icons, clearer unique-IP and cooldown messaging
+- Seeded Demo Lab Client, Mock Alpha/Beta brokers, and `ip.reuse.cooldown_hours`
+- Pytest coverage for brokers, sessions, IP manager, locks, whitelist, and OpenAPI W2 paths
+- Compose E2E helper `scripts/w2_compose_e2e.sh`
+
+### Who / Where
+
+- Who: deepak404found
+- Where: branch `main`
+
+See `docs/changelogs/WAVE-02.md` for full Wave 2 detail.
+
 ## [0.2.0] - 2026-07-24
 
 ### Added

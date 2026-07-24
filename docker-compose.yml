@@ -74,6 +74,10 @@ services:
       SEED_ADMIN_PASSWORD: admin123!
       INFRA_PROVIDER: mock
       BROKER_PROVIDER: mock
+      LOCK_PROVIDER: redis
+      SESSION_PROVIDER: redis
+      IP_REUSE_COOLDOWN_HOURS: "24"
+      SECRETS_FERNET_KEY: WrU8g7fNF5VR7r_n03I_RXkGAFBhYx0I7WSeeFUeJw4=
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,6 +112,10 @@ services:
       SEED_ADMIN_PASSWORD: admin123!
       INFRA_PROVIDER: mock
       BROKER_PROVIDER: mock
+      LOCK_PROVIDER: redis
+      SESSION_PROVIDER: redis
+      IP_REUSE_COOLDOWN_HOURS: "24"
+      SECRETS_FERNET_KEY: WrU8g7fNF5VR7r_n03I_RXkGAFBhYx0I7WSeeFUeJw4=
     depends_on:
       postgres:
         condition: service_healthy

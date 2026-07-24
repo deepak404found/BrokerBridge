@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     seed_admin_password: str = Field(default="admin123!", validation_alias="SEED_ADMIN_PASSWORD")
     infra_provider: str = Field(default="mock", validation_alias="INFRA_PROVIDER")
     broker_provider: str = Field(default="mock", validation_alias="BROKER_PROVIDER")
+    lock_provider: str = Field(default="memory", validation_alias="LOCK_PROVIDER")
+    session_provider: str = Field(default="memory", validation_alias="SESSION_PROVIDER")
+    ip_reuse_cooldown_hours: int = Field(default=24, validation_alias="IP_REUSE_COOLDOWN_HOURS")
 
 
 @lru_cache
