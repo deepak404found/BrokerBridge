@@ -94,11 +94,12 @@ yarn-error.log*
 .next/
 out/
 
-# --- AI / agent tooling (local only; not part of assignment deliverable) ---
+# --- Local editor / internal planning docs ---
 .cursor/
 CLAUDE.md
 AGENTS.md
 docs/changelogs/
+docs/plans/
 
 # --- Test / coverage artifacts ---
 coverage.xml
