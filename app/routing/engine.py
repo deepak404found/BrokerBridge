@@ -120,9 +120,18 @@ class RoutingEngine:
                     )
                     continue
                 if assignment and assignment[1].region != region_preference:
-                    # Soft preference: still allow but note it
-                    reasons.append("region_ip_mismatch")
-
+                    excluded.append(
+                        {
+                            "broker_account_id": broker.id,
+                            "broker_display_name": broker.display_name,
+                            "reason": "REGION_IP_MISMATCH",
+                            "ip_region": assignment[1].region,
+                        }
+                    )
+                    continue
+                reasons.append("region_match")
+                # Prefer matching-region routes
+                # (bonus applied below via sticky-style region boost)
             health = health_rows.get(str(broker.id))
             health_score = float(health["score"]) if health else 0.0
             health_status = str(health["status"]) if health else "unhealthy"
@@ -161,8 +170,9 @@ class RoutingEngine:
             sticky = 15.0 if preferred_broker_id and broker.id == preferred_broker_id else 0.0
             if sticky:
                 reasons.append("preferred_sticky")
+            region_bonus = 10.0 if region_preference and "region_match" in reasons else 0.0
             priority_bonus = float(broker.priority) * 2.0
-            route_score = health_score + priority_bonus - rate_pressure + sticky
+            route_score = health_score + priority_bonus - rate_pressure + sticky + region_bonus
 
             candidates.append(
                 RouteCandidate(

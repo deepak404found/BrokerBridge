@@ -12,6 +12,28 @@ Commit + changelog updates happen **after wave testing**, only with user approva
 
 - Planning artifacts continue under `docs/plans/` for upcoming waves
 
+## [0.5.0] - 2026-07-24
+
+### Added
+
+- Zero-downtime IP rotation (`POST …/rotate-ip`) with drain/cutover and abort-on-timeout default
+- Multi-region allocation polish and region-aware infrastructure paths
+- Transactional outbox + worker drain to dual-mode EventProvider (Memory / Redpanda local / Kafka-shaped)
+- Event envelope publish on order, IP, and config mutations; monitoring list + drain APIs
+- Admin Event Bus with WebSocket live refresh (`/api/v1/ws/events`) and Runtime Config for kind=`event`
+- Cloud Kafka SSL/SASL wiring fixes for day-2 bus swap without restart
+- Alembic `004_w4` outbox table; `.env.example` event-bus placeholders (no secrets)
+- Pytest coverage for rotation, outbox, events, regions, WS, provider reload, OpenAPI W4 paths
+- Compose E2E helper `scripts/w4_compose_e2e.sh`
+
+### Who / Where
+
+- Who: deepak404found
+- Where: branch `main`
+
+See `docs/changelogs/WAVE-04.md` for detail.
+
+
 ## [0.4.0] - 2026-07-24
 
 ### Added

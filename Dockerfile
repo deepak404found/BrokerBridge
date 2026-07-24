@@ -13,6 +13,7 @@ COPY pyproject.toml poetry.lock README.md ./
 RUN poetry install --only main --no-ansi --no-root
 
 COPY app ./app
+COPY migrations ./migrations
 RUN poetry install --only main --no-ansi
 
 EXPOSE 8000

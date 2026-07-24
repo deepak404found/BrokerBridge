@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
 from app.core.errors import AppError
+from app.events.outbox import enqueue_outbox
 from app.models.broker import BrokerAccount
 from app.models.config_item import ConfigurationItem
 from app.models.infrastructure import BrokerIpUsageHistory, Instance, IpAssignment, StaticIp
@@ -91,6 +92,17 @@ class IpManagerService:
             )
             self.db.add(row)
             try:
+                await self.db.flush()
+                enqueue_outbox(
+                    self.db,
+                    event_type="ip.allocated",
+                    topic="ip",
+                    payload={
+                        "static_ip_id": str(row.id),
+                        "ip_address": row.ip_address,
+                        "region": row.region,
+                    },
+                )
                 await self.db.commit()
                 await self.db.refresh(row)
                 return row
@@ -104,8 +116,11 @@ class IpManagerService:
             details={"cause": str(last_error) if last_error else None},
         )
 
-    async def list_ips(self) -> list[StaticIp]:
-        result = await self.db.execute(select(StaticIp).order_by(StaticIp.created_at.desc()))
+    async def list_ips(self, *, region: str | None = None) -> list[StaticIp]:
+        q = select(StaticIp).order_by(StaticIp.created_at.desc())
+        if region:
+            q = q.where(StaticIp.region == region)
+        result = await self.db.execute(q)
         return list(result.scalars().all())
 
     async def get_ip(self, ip_id: uuid.UUID) -> StaticIp:
@@ -288,6 +303,16 @@ class IpManagerService:
             infra = await self.providers.get_infrastructure_provider(self.db)
             await infra.delete_ip(ip.external_id)
             ip.status = "released"
+            enqueue_outbox(
+                self.db,
+                event_type="ip.released",
+                topic="ip",
+                payload={
+                    "static_ip_id": str(ip.id),
+                    "ip_address": ip.ip_address,
+                    "region": ip.region,
+                },
+            )
             await self.db.commit()
             await self.db.refresh(ip)
             return ip

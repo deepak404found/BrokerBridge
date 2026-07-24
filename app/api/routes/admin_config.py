@@ -7,6 +7,7 @@ from app.api.openapi import AUTH_ERRORS, NOT_FOUND, success_response
 from app.auth.deps import require_roles
 from app.config.service import ConfigService
 from app.db.session import get_db
+from app.events.outbox import enqueue_outbox
 from app.models.user import User
 from app.schemas.config import ConfigItemResponse, ConfigPutRequest
 
@@ -81,4 +82,13 @@ async def put_config(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ConfigItemResponse:
     item = await ConfigService(db).put(key, body.value, updated_by=user.id)
+    if key.startswith("ip.rotation.") or key.startswith("routing."):
+        enqueue_outbox(
+            db,
+            event_type="config.updated",
+            topic="config",
+            payload={"key": key, "version": item.version},
+        )
+        await db.commit()
+        await db.refresh(item)
     return ConfigItemResponse.model_validate(item)

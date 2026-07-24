@@ -47,9 +47,21 @@ class MemorySession:
 class MemoryEventProvider:
     def __init__(self) -> None:
         self.published: list[tuple[str, dict[str, Any]]] = []
+        self.topic_prefix: str | None = None
+        self.topic_map: dict[str, str] | None = None
+        self.provider_type = "memory"
+        self.closed = False
 
     async def publish(self, topic: str, event: dict[str, Any]) -> None:
+        if self.closed:
+            raise RuntimeError("MemoryEventProvider is closed")
         self.published.append((topic, event))
+
+    async def probe(self) -> dict[str, Any]:
+        return {"ok": True, "provider_type": "memory", "published": len(self.published)}
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 class MemoryRateLimit:

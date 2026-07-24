@@ -361,7 +361,18 @@
       className: "bg-dark-700 text-gray-300",
     };
 
-    return [assign, attach, detach, release, reuse];
+    const rotate = {
+      action: "rotate",
+      label: "Rotate",
+      icon: "fa-arrows-rotate",
+      enabled: Boolean(assigned && assignment && assignment.broker_account_id),
+      reason: assigned ? "" : "Assign to a broker before rotating",
+      title: "Zero-downtime IP rotate for assigned broker",
+      className: "bg-violet-500/10 text-violet-300",
+      brokerId: assigned && assignment ? assignment.broker_account_id : null,
+    };
+
+    return [assign, attach, detach, release, reuse, rotate];
   }
 
   function renderActionButton(spec) {
@@ -430,7 +441,18 @@
     tbody.innerHTML = cachedIps
       .map((ip) => {
         const a = assignByIp[ip.id];
-        const actions = ipActionSpecs(ip, a).map(renderActionButton).join("");
+        const actions = ipActionSpecs(ip, a)
+          .map((spec) => {
+            const html = renderActionButton(spec);
+            if (spec.action === "rotate" && spec.brokerId) {
+              return html.replace(
+                'data-action="rotate"',
+                `data-action="rotate" data-broker-id="${escapeAttr(spec.brokerId)}"`,
+              );
+            }
+            return html;
+          })
+          .join("");
         return `<tr class="hover:bg-white/5 transition" data-ip-id="${ip.id}">
           <td class="py-3 px-4 text-blue-400 font-bold">${ip.ip_address}</td>
           <td class="py-3 px-4 font-sans text-gray-300">${ip.region}</td>
@@ -450,7 +472,16 @@
             notify(btn.getAttribute("data-reason") || "Action not available for this IP");
             return;
           }
-          handleIpAction(btn.getAttribute("data-action"), id);
+          const action = btn.getAttribute("data-action");
+          if (action === "rotate") {
+            if (window.W4Admin && typeof window.W4Admin.openRotate === "function") {
+              window.W4Admin.openRotate(btn.getAttribute("data-broker-id"), id);
+            } else {
+              notify("Rotate UI not loaded");
+            }
+            return;
+          }
+          handleIpAction(action, id);
         });
       });
     });

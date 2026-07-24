@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.service import ConfigService
 from app.config.settings import Settings
 from app.core.errors import AppError
+from app.events.outbox import enqueue_outbox
 from app.models.health import FailoverEvent
 from app.models.order import Order, OrderAttempt
 from app.providers.broker.mock import MockBrokerError
@@ -269,6 +270,22 @@ class OrderService:
                 order.status = "SUBMITTED"
                 order.broker_order_id = attempt.broker_order_id
                 order.error_code = None
+                enqueue_outbox(
+                    self.db,
+                    event_type="order.submitted",
+                    topic="orders",
+                    payload={
+                        "order_id": str(order.id),
+                        "client_id": str(order.client_id),
+                        "client_order_id": order.client_order_id,
+                        "broker_account_id": str(candidate.broker.id),
+                        "static_ip_id": str(candidate.static_ip_id) if candidate.static_ip_id else None,
+                        "side": order.side,
+                        "symbol": order.symbol,
+                        "quantity": str(order.quantity),
+                        "broker_order_id": order.broker_order_id,
+                    },
+                )
                 await self.db.commit()
                 return
             except MockBrokerError as exc:
@@ -341,6 +358,17 @@ class OrderService:
         if not order.broker_order_id:
             # Never reached broker — mark cancelled locally
             order.status = "CANCELLED"
+            enqueue_outbox(
+                self.db,
+                event_type="order.cancelled",
+                topic="orders",
+                payload={
+                    "order_id": str(order.id),
+                    "client_id": str(order.client_id),
+                    "client_order_id": order.client_order_id,
+                    "broker_order_id": None,
+                },
+            )
             await self.db.commit()
             await self.db.refresh(order)
             return order
@@ -359,6 +387,17 @@ class OrderService:
             ) from exc
 
         order.status = "CANCELLED"
+        enqueue_outbox(
+            self.db,
+            event_type="order.cancelled",
+            topic="orders",
+            payload={
+                "order_id": str(order.id),
+                "client_id": str(order.client_id),
+                "client_order_id": order.client_order_id,
+                "broker_order_id": order.broker_order_id,
+            },
+        )
         await self.db.commit()
         await self.db.refresh(order)
         return order

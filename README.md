@@ -36,8 +36,8 @@ Login via Swagger `POST /api/v1/auth/token` (username = email) or the Admin JWT 
 
 ## Status
 
-Wave 0 foundation + Wave 1 (DB, providers, JWT) are implemented.  
-**Next:** Wave 2 — Brokers + Sessions + IP/Infra.
+Waves 0–4 are implemented (Local Lab through IP rotation, outbox events, and Admin Event Bus).  
+**Next:** Wave 5 — Replay + Monitor + Sim + Config UI (includes EventProvider consumer).
 
 ## Local Lab (Docker Compose)
 

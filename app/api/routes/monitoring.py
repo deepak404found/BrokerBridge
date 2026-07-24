@@ -7,6 +7,7 @@ from app.api.openapi import AUTH_ERRORS, success_response
 from app.auth.deps import require_roles
 from app.config.settings import Settings, get_settings
 from app.db.session import get_db
+from app.events.outbox import drain_outbox, list_outbox
 from app.health.service import HealthService
 from app.models.user import User
 from app.orders.service import OrderService
@@ -14,6 +15,7 @@ from app.providers.manager import get_provider_manager
 from app.rate_limit.service import RateLimitService
 from app.routing.engine import RoutingEngine
 from app.schemas.brokers import SessionStatusResponse
+from app.schemas.events import OutboxDrainResponse, OutboxEventResponse
 from app.schemas.monitoring_w3 import (
     FailoverEventResponse,
     HealthBrokerResponse,
@@ -246,3 +248,50 @@ async def routing_preview(
         region_preference=body.region_preference,
     )
     return RoutingPreviewResponse.model_validate(preview)
+
+
+@router.get(
+    "/events",
+    response_model=list[OutboxEventResponse],
+    summary="Recent outbox / event bus rows",
+    responses={
+        200: success_response(
+            "Events",
+            example=[
+                {
+                    "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                    "event_type": "ip.rotated",
+                    "topic": "ip",
+                    "payload": {"old_ip": "198.51.100.10", "new_ip": "198.51.100.22"},
+                    "status": "sent",
+                    "error": None,
+                    "correlation_id": None,
+                    "created_at": "2026-07-24T12:00:00Z",
+                    "sent_at": "2026-07-24T12:00:01Z",
+                }
+            ],
+        )
+    },
+)
+async def list_events(
+    _: Annotated[User, Depends(require_roles("admin", "ops", "readonly"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(50, ge=1, le=200),
+    status: str | None = Query(default=None, description="pending|sent|error"),
+) -> list[OutboxEventResponse]:
+    rows = await list_outbox(db, limit=limit, status=status)
+    return [OutboxEventResponse.model_validate(r) for r in rows]
+
+
+@router.post(
+    "/events/drain",
+    response_model=OutboxDrainResponse,
+    summary="Drain pending outbox to EventProvider (lab/ops)",
+)
+async def drain_events(
+    _: Annotated[User, Depends(require_roles("admin", "ops"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(50, ge=1, le=200),
+) -> OutboxDrainResponse:
+    stats = await drain_outbox(db, get_provider_manager(), limit=limit, producer="brokerbridge-api")
+    return OutboxDrainResponse.model_validate(stats)

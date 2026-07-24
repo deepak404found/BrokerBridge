@@ -9,6 +9,7 @@ from app.api.routes import (
     infrastructure,
     monitoring,
     orders,
+    ws_events,
 )
 
 api_router = APIRouter()
@@ -20,3 +21,4 @@ api_router.include_router(brokers.router)
 api_router.include_router(infrastructure.router)
 api_router.include_router(monitoring.router)
 api_router.include_router(orders.router)
+api_router.include_router(ws_events.router)

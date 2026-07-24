@@ -83,6 +83,8 @@ async def seed_defaults(session: AsyncSession, settings: Settings) -> None:
         "routing.policy": {"policy": "WEIGHTED_SCORE"},
         "rate_limit.exceed_policy": {"policy": "REROUTE"},
         "orders.execution_mode": {"mode": "inline"},
+        "ip.rotation.drain_timeout_seconds": {"seconds": 30},
+        "ip.rotation.on_timeout": {"policy": "ABORT"},
     }
     for key, value in w3_defaults.items():
         existing = await session.execute(

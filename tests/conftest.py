@@ -24,6 +24,7 @@ def _force_memory_providers(monkeypatch, sqlite_url: str) -> None:
     monkeypatch.setenv("LOCK_PROVIDER", "memory")
     monkeypatch.setenv("SESSION_PROVIDER", "memory")
     monkeypatch.setenv("RATE_LIMIT_PROVIDER", "memory")
+    monkeypatch.setenv("EVENT_PROVIDER", "memory")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
 

@@ -62,6 +62,10 @@ class SessionProvider(Protocol):
 class EventProvider(Protocol):
     async def publish(self, topic: str, event: dict[str, Any]) -> None: ...
 
+    async def probe(self) -> dict[str, Any]: ...
+
+    async def aclose(self) -> None: ...
+
 
 @runtime_checkable
 class RateLimitProvider(Protocol):

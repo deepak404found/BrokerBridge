@@ -1,16 +1,18 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.openapi import AUTH_ERRORS, NOT_FOUND, UNPROCESSABLE, success_response
 from app.auth.deps import require_roles
 from app.config.settings import Settings, get_settings
 from app.db.session import get_db
+from app.ip_manager.rotation import RotationService
 from app.ip_manager.service import IpManagerService
 from app.models.user import User
 from app.providers.manager import get_provider_manager
+from app.schemas.events import RotateIpRequest, RotateIpResponse
 from app.schemas.infrastructure import (
     AllocateIpRequest,
     AssignIpRequest,
@@ -81,6 +83,13 @@ def _ip_svc(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> IpManagerService:
     return IpManagerService(db, settings, get_provider_manager())
+
+
+def _rot_svc(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> RotationService:
+    return RotationService(db, settings, get_provider_manager())
 
 
 def _wl_svc(
@@ -156,9 +165,53 @@ async def allocate_ip(
 async def list_ips(
     _: Annotated[User, Depends(require_roles("admin", "ops", "readonly"))],
     svc: Annotated[IpManagerService, Depends(_ip_svc)],
+    region: str | None = Query(default=None, description="Filter by region (e.g. ewr, ord)"),
 ) -> list[StaticIpResponse]:
-    return [StaticIpResponse.model_validate(r) for r in await svc.list_ips()]
+    return [StaticIpResponse.model_validate(r) for r in await svc.list_ips(region=region)]
 
+
+@router.post(
+    "/brokers/{broker_id}/rotate-ip",
+    response_model=RotateIpResponse,
+    summary="Zero-downtime rotate broker static IP",
+    responses={
+        200: success_response(
+            "Rotated",
+            example={
+                "broker_account_id": "11111111-1111-4111-8111-111111111111",
+                "old_ip_id": "44444444-4444-4444-8444-444444444444",
+                "new_ip_id": "55555555-5555-4555-8555-555555555555",
+                "old_ip": "198.51.100.10",
+                "new_ip": "198.51.100.22",
+                "old_assignment_id": "66666666-6666-4666-8666-666666666666",
+                "new_assignment_id": "77777777-7777-4777-8777-777777777777",
+                "force": False,
+                "drained": True,
+                "whitelist_ok": True,
+                "status": "rotated",
+            },
+        ),
+        **NOT_FOUND,
+        **UNPROCESSABLE,
+    },
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "example": {"force": False},
+                }
+            }
+        }
+    },
+)
+async def rotate_ip(
+    broker_id: UUID,
+    body: RotateIpRequest,
+    _: Annotated[User, Depends(require_roles("admin", "ops"))],
+    svc: Annotated[RotationService, Depends(_rot_svc)],
+) -> RotateIpResponse:
+    result = await svc.rotate(broker_id, force=body.force)
+    return RotateIpResponse.model_validate(result)
 
 @router.post(
     "/ips/{ip_id}/assign",
