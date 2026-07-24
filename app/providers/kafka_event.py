@@ -68,6 +68,96 @@ class KafkaEventProvider:
             kwargs["sasl_plain_password"] = self.password or ""
         return kwargs
 
+    def default_physical_topics(self) -> list[str]:
+        """Resolved physical topics for the standard event domains."""
+        # Lazy import avoids circular import via app.events → outbox → manager.
+        from app.events.envelope import DEFAULT_TOPIC_MAP, resolve_physical_topic
+
+        return list(
+            dict.fromkeys(
+                resolve_physical_topic(
+                    logical,
+                    topic_prefix=self.topic_prefix,
+                    topic_map=self.topic_map,
+                )
+                for logical in DEFAULT_TOPIC_MAP
+            )
+        )
+
+    async def ensure_topics(
+        self,
+        topics: Sequence[str],
+        *,
+        num_partitions: int = 1,
+        replication_factor: int = 1,
+    ) -> dict[str, Any]:
+        """Create missing topics (idempotent). Safe if cluster already has them."""
+        wanted = [t for t in dict.fromkeys(topics) if t]
+        if not wanted:
+            return {"ok": True, "created": [], "existing": []}
+
+        from aiokafka.admin import AIOKafkaAdminClient, NewTopic
+        from aiokafka.errors import TopicAlreadyExistsError, TopicAuthorizationFailedError
+
+        admin = AIOKafkaAdminClient(**self._client_kwargs())
+        try:
+            await admin.start()
+            known = set(await admin.list_topics())
+            existing = sorted(t for t in wanted if t in known)
+            missing = [t for t in wanted if t not in known]
+            created: list[str] = []
+            if missing:
+                new_topics = [
+                    NewTopic(
+                        name=name,
+                        num_partitions=num_partitions,
+                        replication_factor=replication_factor,
+                    )
+                    for name in missing
+                ]
+                try:
+                    await admin.create_topics(new_topics)
+                    created = list(missing)
+                except TopicAlreadyExistsError:
+                    # Race with another instance / auto-create — treat as present
+                    created = []
+                    existing = sorted(set(existing) | set(missing))
+                except TopicAuthorizationFailedError as exc:
+                    logger.warning(
+                        "kafka_ensure_topics_unauthorized missing=%s err=%s",
+                        missing,
+                        exc,
+                    )
+                    return {
+                        "ok": False,
+                        "created": [],
+                        "existing": existing,
+                        "error": f"TopicAuthorizationFailedError: {exc}",
+                    }
+                logger.info(
+                    "kafka_topics_ensured created=%s existing=%s",
+                    created,
+                    existing,
+                )
+            return {"ok": True, "created": created, "existing": existing}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "kafka_ensure_topics_failed: %s err=%s",
+                type(exc).__name__,
+                exc,
+            )
+            return {
+                "ok": False,
+                "created": [],
+                "existing": [],
+                "error": str(exc),
+            }
+        finally:
+            try:
+                await admin.close()
+            except Exception:  # noqa: BLE001
+                pass
+
     async def _ensure_producer(self):
         if self._producer is not None:
             return self._producer
@@ -79,6 +169,7 @@ class KafkaEventProvider:
         return producer
 
     async def publish(self, topic: str, event: dict[str, Any]) -> None:
+        await self.ensure_topics([topic])
         producer = await self._ensure_producer()
         payload = json.dumps(event).encode("utf-8")
         key = str(event.get("event_id") or "").encode("utf-8") or None
@@ -98,12 +189,15 @@ class KafkaEventProvider:
         if consumer_group:
             self.consumer_group = consumer_group
         self._stop.clear()
+        await self.ensure_topics(self._topics)
 
     async def run_consumer(self) -> None:
         """Blocking consume loop until aclose / stop."""
         if not self._topics or self._handler is None:
             await self._stop.wait()
             return
+
+        await self.ensure_topics(self._topics)
 
         from aiokafka import AIOKafkaConsumer
 
@@ -156,7 +250,7 @@ class KafkaEventProvider:
             logger.info("kafka_consumer_stopped")
 
     async def probe(self) -> dict[str, Any]:
-        """Metadata probe + optional produce to configured topic (scratch)."""
+        """Metadata probe + ensure default topics + optional produce to scratch topic."""
         from aiokafka import AIOKafkaProducer
         from aiokafka.admin import AIOKafkaAdminClient
 
@@ -181,14 +275,24 @@ class KafkaEventProvider:
                 except Exception:  # noqa: BLE001
                     pass
 
+        ensured = await self.ensure_topics(self.default_physical_topics())
+        detail["topics_ensured"] = ensured
+        if not ensured.get("ok"):
+            # Metadata worked; topic create may require ACL — keep probe ok but surface error
+            detail["ensure_topics_error"] = ensured.get("error")
+
         scratch = f"{(self.topic_prefix or 'brokerbridge').rstrip('.')}.probe"
-        known = set(detail.get("topics_sample") or [])
+        known = set(detail.get("topics_sample") or []) | set(ensured.get("created") or []) | set(
+            ensured.get("existing") or []
+        )
         if scratch not in known and known:
             preferred = (self.topic_prefix or "").rstrip(".")
             if preferred in known:
                 scratch = preferred
             else:
-                scratch = sorted(known)[0]
+                # Prefer a domain topic we just ensured
+                defaults = self.default_physical_topics()
+                scratch = next((t for t in defaults if t in known), sorted(known)[0])
         producer = None
         try:
             producer = AIOKafkaProducer(**self._client_kwargs())
