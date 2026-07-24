@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
@@ -22,7 +23,6 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_engine(settings.database_url)
     factory = get_session_factory()
-    # W1: create schema on startup (Alembic also provided for prod-style upgrades)
     from app.db.session import engine
 
     assert engine is not None
@@ -30,7 +30,30 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     async with factory() as session:
         await seed_defaults(session, settings)
-    yield
+
+    from app.events.consumer import event_consumer_loop
+
+    stop = asyncio.Event()
+    ready = asyncio.Event()
+    fanin_task = asyncio.create_task(
+        event_consumer_loop(group_suffix="-api", stop_event=stop, ready_event=ready),
+        name="event-fanin-api",
+    )
+    try:
+        await asyncio.wait_for(ready.wait(), timeout=15.0)
+    except TimeoutError:
+        pass
+    app.state.event_fanin_stop = stop
+    app.state.event_fanin_task = fanin_task
+    try:
+        yield
+    finally:
+        stop.set()
+        fanin_task.cancel()
+        try:
+            await fanin_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
 
 
 def create_app() -> FastAPI:

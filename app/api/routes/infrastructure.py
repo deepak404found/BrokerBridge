@@ -24,6 +24,7 @@ from app.schemas.infrastructure import (
     WhitelistFindingResponse,
     WhitelistSyncResponse,
 )
+from app.schemas.pagination import PaginatedList, pagination_example
 from app.whitelist.service import WhitelistService
 
 router = APIRouter(
@@ -158,16 +159,24 @@ async def allocate_ip(
 
 @router.get(
     "/ips",
-    response_model=list[StaticIpResponse],
+    response_model=PaginatedList[StaticIpResponse],
     summary="List static IPs",
-    responses={200: success_response("IP list", example=[_IP_EXAMPLE])},
+    responses={200: success_response("IP list", example=pagination_example(_IP_EXAMPLE))},
 )
 async def list_ips(
     _: Annotated[User, Depends(require_roles("admin", "ops", "readonly"))],
     svc: Annotated[IpManagerService, Depends(_ip_svc)],
     region: str | None = Query(default=None, description="Filter by region (e.g. ewr, ord)"),
-) -> list[StaticIpResponse]:
-    return [StaticIpResponse.model_validate(r) for r in await svc.list_ips(region=region)]
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> PaginatedList[StaticIpResponse]:
+    rows, total = await svc.list_ips(region=region, limit=limit, offset=offset)
+    return PaginatedList.build(
+        [StaticIpResponse.model_validate(r) for r in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.post(

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
 from app.core.errors import AppError
+from app.core.redis_deps import acquire_lock, release_lock
 from app.events.outbox import enqueue_outbox
 from app.ip_manager.service import IpManagerService
 from app.models.broker import BrokerAccount
@@ -121,7 +122,7 @@ class RotationService:
         lock = self.providers.get_lock_provider()
         broker_lock = f"lock:broker:{broker_id}:ip"
         token = uuid.uuid4().hex
-        if not await lock.acquire(broker_lock, 60.0, token):
+        if not await acquire_lock(lock, broker_lock, 60.0, token, op="broker IP lock"):
             raise AppError("LOCK_CONTENTION", "Broker IP lock held", status_code=409)
 
         new_ip: StaticIp | None = None
@@ -310,4 +311,4 @@ class RotationService:
                             await self.db.commit()
                 except Exception:  # noqa: BLE001
                     logger.warning("rotation_final_cleanup_failed")
-            await lock.release(broker_lock, token)
+            await release_lock(lock, broker_lock, token)

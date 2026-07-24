@@ -1,5 +1,9 @@
 from typing import Any
+import asyncio
 import time
+from collections.abc import Awaitable, Callable, Sequence
+
+EventHandler = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 
 class MemoryCache:
@@ -45,23 +49,62 @@ class MemorySession:
 
 
 class MemoryEventProvider:
-    def __init__(self) -> None:
+    """In-process EventProvider with publish fan-out to subscribe handlers."""
+
+    def __init__(self, *, consumer_group: str | None = None) -> None:
         self.published: list[tuple[str, dict[str, Any]]] = []
         self.topic_prefix: str | None = None
         self.topic_map: dict[str, str] | None = None
         self.provider_type = "memory"
+        self.consumer_group = consumer_group or "brokerbridge-lab"
         self.closed = False
+        self._handlers: list[tuple[set[str] | None, EventHandler]] = []
+        self._stop = asyncio.Event()
 
     async def publish(self, topic: str, event: dict[str, Any]) -> None:
         if self.closed:
             raise RuntimeError("MemoryEventProvider is closed")
         self.published.append((topic, event))
+        for topics, handler in list(self._handlers):
+            if topics is None or topic in topics:
+                await handler(topic, event)
+
+    async def subscribe(
+        self,
+        topics: Sequence[str],
+        handler: EventHandler,
+        *,
+        consumer_group: str | None = None,
+    ) -> None:
+        if self.closed:
+            raise RuntimeError("MemoryEventProvider is closed")
+        if consumer_group:
+            self.consumer_group = consumer_group
+        topic_set = set(topics) if topics else None
+        # Replace handlers (one consumer registration per provider instance)
+        self._handlers = [(topic_set, handler)]
+        for topic, event in list(self.published):
+            if topic_set is None or topic in topic_set:
+                await handler(topic, event)
+
+    async def run_consumer(self) -> None:
+        """Block until aclose — Memory delivers via publish fan-out."""
+        self._stop.clear()
+        await self._stop.wait()
 
     async def probe(self) -> dict[str, Any]:
-        return {"ok": True, "provider_type": "memory", "published": len(self.published)}
+        return {
+            "ok": True,
+            "provider_type": "memory",
+            "published": len(self.published),
+            "handlers": len(self._handlers),
+            "consumer_group": self.consumer_group,
+        }
 
     async def aclose(self) -> None:
         self.closed = True
+        self._handlers.clear()
+        self._stop.set()
 
 
 class MemoryRateLimit:

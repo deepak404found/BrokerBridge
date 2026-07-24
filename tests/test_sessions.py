@@ -1,4 +1,5 @@
 import pytest
+from tests.helpers import as_items
 
 
 async def _login(client):
@@ -13,7 +14,7 @@ async def _login(client):
 async def test_session_ensure_idempotent_and_no_raw_tokens(client):
     token = await _login(client)
     headers = {"Authorization": f"Bearer {token}"}
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     broker_id = brokers[0]["id"]
 
     first = await client.post(f"/api/v1/brokers/{broker_id}/sessions/ensure", headers=headers)
@@ -41,7 +42,8 @@ async def test_session_ensure_idempotent_and_no_raw_tokens(client):
 
     listed = await client.get("/api/v1/monitoring/sessions", headers=headers)
     assert listed.status_code == 200
-    assert any(s["broker_account_id"] == broker_id for s in listed.json())
-    for s in listed.json():
+    rows = as_items(listed.json())
+    assert any(s["broker_account_id"] == broker_id for s in rows)
+    for s in rows:
         assert "access_token" not in s
         assert "token_encrypted" not in s

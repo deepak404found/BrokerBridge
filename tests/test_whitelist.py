@@ -1,6 +1,7 @@
 import pytest
 
 from app.whitelist.service import normalize_whitelist
+from tests.helpers import as_items
 
 
 def test_normalize_json_and_xml():
@@ -26,7 +27,7 @@ async def test_whitelist_sync_persists_findings(client):
     )
     token = login.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     broker_id = brokers[0]["id"]
 
     # Allocate + assign so expected set is non-empty → missing findings vs mock whitelist

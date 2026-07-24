@@ -25,7 +25,7 @@
 
   async function resolveDemoClientId() {
     if (demoClientId) return demoClientId;
-    const brokers = await api().json("/brokers");
+    const brokers = api().asItems(await api().json("/brokers"));
     if (brokers.length) {
       demoClientId = brokers[0].client_id;
       return demoClientId;
@@ -50,7 +50,7 @@
 
   async function loadBrokers() {
     await ensureAuth();
-    cachedBrokers = await api().json("/brokers");
+    cachedBrokers = api().asItems(await api().json("/brokers?limit=100"));
     const tbody = document.getElementById("w2-brokers-tbody");
     if (!tbody) return;
     if (!cachedBrokers.length) {
@@ -192,8 +192,8 @@
 
   async function loadSessions() {
     await ensureAuth();
-    const sessions = await api().json("/monitoring/sessions");
-    const brokers = cachedBrokers.length ? cachedBrokers : await api().json("/brokers");
+    const sessions = api().asItems(await api().json("/monitoring/sessions?limit=100"));
+    const brokers = cachedBrokers.length ? cachedBrokers : api().asItems(await api().json("/brokers?limit=100"));
     cachedBrokers = brokers;
     const tbody = document.getElementById("w2-sessions-tbody");
     if (!tbody) return;
@@ -238,7 +238,7 @@
   async function refreshAllSessions() {
     try {
       await ensureAuth();
-      const brokers = await api().json("/brokers");
+      const brokers = api().asItems(await api().json("/brokers?limit=100"));
       for (const b of brokers) {
         await api().json(`/brokers/${b.id}/sessions/ensure`, { method: "POST", body: "{}" });
       }
@@ -391,7 +391,7 @@
 
   async function loadIps() {
     await ensureAuth();
-    cachedIps = await api().json("/infrastructure/ips");
+    cachedIps = api().asItems(await api().json("/infrastructure/ips?limit=100"));
     cachedInstances = await api().json("/infrastructure/instances");
     const assignments = await api().json("/infrastructure/assignments");
     const assignByIp = {};
@@ -413,7 +413,7 @@
 
     const brokerSelect = document.getElementById("w2-assign-broker");
     if (brokerSelect) {
-      const brokers = cachedBrokers.length ? cachedBrokers : await api().json("/brokers");
+      const brokers = cachedBrokers.length ? cachedBrokers : api().asItems(await api().json("/brokers?limit=100"));
       cachedBrokers = brokers;
       brokerSelect.innerHTML = brokers
         .map((b) => `<option value="${b.id}">${b.display_name}</option>`)

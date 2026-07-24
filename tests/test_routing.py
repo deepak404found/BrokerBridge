@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from tests.helpers import as_items
 
 
 async def _login(client):
@@ -43,7 +44,7 @@ async def _assign_ip(client, headers, broker_id, client_id, region="ewr"):
 async def test_routing_requires_assigned_ip_and_sticky(client):
     token = await _login(client)
     headers = {"Authorization": f"Bearer {token}"}
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     client_id = brokers[0]["client_id"]
     alpha = brokers[0]
     beta = brokers[1]

@@ -4,13 +4,15 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
 from app.core.crypto import decrypt_secret, encrypt_secret
 from app.core.errors import AppError
+from app.core.redis_deps import acquire_lock, raise_redis_unavailable, release_lock
 from app.models.broker import BrokerAccount, BrokerSession
+from app.providers.errors import RedisUnavailableError
 from app.providers.manager import ProviderManager
 
 
@@ -31,13 +33,19 @@ class SessionService:
         )
         return result.scalar_one_or_none()
 
-    async def list_all(self) -> list[tuple[BrokerSession, BrokerAccount]]:
+    async def list_all(
+        self, *, limit: int = 25, offset: int = 0
+    ) -> tuple[list[tuple[BrokerSession, BrokerAccount]], int]:
+        count_q = select(func.count()).select_from(BrokerSession)
+        total = int((await self.db.execute(count_q)).scalar_one() or 0)
         result = await self.db.execute(
-            select(BrokerSession, BrokerAccount).join(
-                BrokerAccount, BrokerSession.broker_account_id == BrokerAccount.id
-            )
+            select(BrokerSession, BrokerAccount)
+            .join(BrokerAccount, BrokerSession.broker_account_id == BrokerAccount.id)
+            .order_by(BrokerSession.updated_at.desc())
+            .limit(min(max(limit, 1), 100))
+            .offset(max(offset, 0))
         )
-        return list(result.all())
+        return list(result.all()), total
 
     async def ensure(self, broker_id: uuid.UUID, *, force_refresh: bool = False) -> BrokerSession:
         result = await self.db.execute(select(BrokerAccount).where(BrokerAccount.id == broker_id))
@@ -51,7 +59,7 @@ class SessionService:
         session_cache = self.providers.get_session_provider()
         lock_key = f"lock:session:{broker_id}"
         token = uuid.uuid4().hex
-        acquired = await lock.acquire(lock_key, 30.0, token)
+        acquired = await acquire_lock(lock, lock_key, 30.0, token, op="session lock")
         if not acquired:
             raise AppError("LOCK_CONTENTION", "Session refresh already in progress", status_code=409)
 
@@ -98,15 +106,18 @@ class SessionService:
             await self.db.commit()
             await self.db.refresh(existing)
 
-            await session_cache.set(
-                f"session:{broker_id}",
-                {
-                    "broker_id": str(broker_id),
-                    "status": existing.status,
-                    "expires_at": expires_at.isoformat(),
-                },
-                ttl_seconds=3600,
-            )
+            try:
+                await session_cache.set(
+                    f"session:{broker_id}",
+                    {
+                        "broker_id": str(broker_id),
+                        "status": existing.status,
+                        "expires_at": expires_at.isoformat(),
+                    },
+                    ttl_seconds=3600,
+                )
+            except RedisUnavailableError as exc:
+                raise_redis_unavailable(exc, op="session cache")
             return existing
         finally:
-            await lock.release(lock_key, token)
+            await release_lock(lock, lock_key, token)

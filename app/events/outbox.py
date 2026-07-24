@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.events.envelope import build_envelope, resolve_physical_topic
@@ -39,14 +39,23 @@ def enqueue_outbox(
 async def list_outbox(
     session: AsyncSession,
     *,
-    limit: int = 50,
+    limit: int = 25,
+    offset: int = 0,
     status: str | None = None,
-) -> list[OutboxEvent]:
-    q = select(OutboxEvent).order_by(OutboxEvent.created_at.desc()).limit(min(limit, 200))
+) -> tuple[list[OutboxEvent], int]:
+    filters = []
     if status:
-        q = q.where(OutboxEvent.status == status)
+        filters.append(OutboxEvent.status == status)
+    count_q = select(func.count()).select_from(OutboxEvent)
+    if filters:
+        count_q = count_q.where(*filters)
+    total = int((await session.execute(count_q)).scalar_one() or 0)
+    q = select(OutboxEvent).order_by(OutboxEvent.created_at.desc())
+    if filters:
+        q = q.where(*filters)
+    q = q.limit(min(max(limit, 1), 100)).offset(max(offset, 0))
     result = await session.execute(q)
-    return list(result.scalars().all())
+    return list(result.scalars().all()), total
 
 
 async def drain_outbox(
@@ -91,6 +100,13 @@ async def drain_outbox(
             row.status = "sent"
             row.sent_at = datetime.now(UTC)
             sent += 1
+            # Feed Admin Event Bus buffer (Memory fan-out may also deliver — buffer dedupes)
+            try:
+                from app.events.consumer import on_consumed_event
+
+                await on_consumed_event(physical, envelope)
+            except Exception:  # noqa: BLE001
+                logger.debug("bus_buffer_append_after_publish_failed", exc_info=True)
         except Exception as exc:  # noqa: BLE001 — persist and continue drain
             logger.exception("outbox_publish_failed id=%s type=%s", row.id, row.event_type)
             row.status = "error"

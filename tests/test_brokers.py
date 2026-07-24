@@ -1,4 +1,5 @@
 import pytest
+from tests.helpers import as_items
 
 
 async def _login(client):
@@ -17,7 +18,7 @@ async def test_brokers_crud_and_capabilities(client):
 
     listed = await client.get("/api/v1/brokers", headers=headers)
     assert listed.status_code == 200
-    seed = listed.json()
+    seed = as_items(listed.json())
     assert len(seed) >= 2
     client_id = seed[0]["client_id"]
 

@@ -1,4 +1,4 @@
-"""WebSocket feed for Admin Event Bus (outbox auto-refresh)."""
+"""WebSocket feed for Admin Event Bus (consumer buffer + outbox fallback)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from sqlalchemy import select
 from app.auth.jwt import decode_access_token, user_id_from_payload
 from app.config.settings import get_settings
 from app.db.session import get_session_factory
+from app.events.bus_buffer import get_bus_buffer
 from app.events.outbox import list_outbox
 from app.models.user import User, UserRole
 from app.schemas.events import OutboxEventResponse
@@ -29,15 +30,23 @@ _POLL_SECONDS = 1.5
 
 def _fingerprint(events: list[dict[str, Any]]) -> str:
     raw = json.dumps(
-        [(e.get("id"), e.get("status"), e.get("sent_at"), e.get("error")) for e in events],
+        [
+            (e.get("id"), e.get("status"), e.get("sent_at"), e.get("error"), e.get("source"))
+            for e in events
+        ],
         default=str,
         separators=(",", ":"),
     )
     return hashlib.sha256(raw.encode()).hexdigest()[:24]
 
 
-def _serialize(rows: list[Any]) -> list[dict[str, Any]]:
-    return [OutboxEventResponse.model_validate(r).model_dump(mode="json") for r in rows]
+def _serialize_outbox(rows: list[Any]) -> list[dict[str, Any]]:
+    out = []
+    for r in rows:
+        data = OutboxEventResponse.model_validate(r).model_dump(mode="json")
+        data["source"] = "outbox"
+        out.append(data)
+    return out
 
 
 async def _authenticate_ws(token: str | None) -> User | None:
@@ -64,7 +73,7 @@ async def outbox_events_ws(
     token: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> None:
-    """Push outbox snapshots when rows change. Auth via JWT query param `token`."""
+    """Push consumer-buffer (preferred) or outbox snapshots. Auth via JWT query param `token`."""
     user = await _authenticate_ws(token)
     if user is None:
         await websocket.close(code=4401)
@@ -75,14 +84,25 @@ async def outbox_events_ws(
     last_fp: str | None = None
     try:
         while True:
-            async with factory() as session:
-                rows = await list_outbox(session, limit=limit)
-            events = _serialize(rows)
+            items, _total = get_bus_buffer().list(limit=limit, offset=0)
+            if items:
+                events = items
+                feed = "consumed"
+            else:
+                async with factory() as session:
+                    rows, _ = await list_outbox(session, limit=limit, offset=0)
+                events = _serialize_outbox(rows)
+                feed = "outbox"
             fp = _fingerprint(events)
             if fp != last_fp:
                 msg_type = "snapshot" if last_fp is None else "update"
                 await websocket.send_json(
-                    {"type": msg_type, "fingerprint": fp, "events": events}
+                    {
+                        "type": msg_type,
+                        "fingerprint": fp,
+                        "feed": feed,
+                        "events": events,
+                    }
                 )
                 last_fp = fp
             await asyncio.sleep(_POLL_SECONDS)

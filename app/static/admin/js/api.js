@@ -1,5 +1,21 @@
 window.BrokerBridgeApi = {
   baseUrl: "/api/v1",
+  asItems(payload) {
+    if (payload && typeof payload === "object" && Array.isArray(payload.items)) return payload.items;
+    return Array.isArray(payload) ? payload : [];
+  },
+  pageMeta(payload, fallbackLimit) {
+    if (payload && typeof payload === "object" && "total" in payload) {
+      return {
+        total: Number(payload.total) || 0,
+        limit: Number(payload.limit) || fallbackLimit || 25,
+        offset: Number(payload.offset) || 0,
+        next_offset: payload.next_offset == null ? null : Number(payload.next_offset),
+      };
+    }
+    const items = this.asItems(payload);
+    return { total: items.length, limit: fallbackLimit || 25, offset: 0, next_offset: null };
+  },
   getToken() {
     return localStorage.getItem("bb_token");
   },
@@ -154,6 +170,7 @@ window.BrokerBridgeApi = {
       document.body.classList.add("admin-authed");
       const user = resolveStoredUser(token);
       setSignedInUser(user.email, user.role);
+      document.dispatchEvent(new CustomEvent("bb:auth-ready"));
     } else {
       shell.classList.add("hidden");
       shell.classList.remove("flex");
@@ -198,6 +215,9 @@ window.BrokerBridgeApi = {
         if (typeof showNotification === "function") {
           showNotification("Signed in — Admin console ready");
         }
+        // Fire after w5 wrappers are loaded; also notify listeners for dashboard boot
+        document.dispatchEvent(new CustomEvent("bb:auth-ready"));
+        if (typeof navigateTo === "function") navigateTo("dashboard");
       } catch (err) {
         if (status) {
           status.textContent = err.message || "Login failed";

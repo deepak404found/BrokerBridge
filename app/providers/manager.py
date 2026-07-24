@@ -48,7 +48,11 @@ class ProviderManager:
                 self._stale.append(old)
             self._event_version = None
             return
-        self._cache.pop(kind, None)
+        # Map API kind names onto cache keys
+        cache_key = {"broker_default": "broker", "infrastructure": "infrastructure"}.get(kind, kind)
+        self._cache.pop(cache_key, None)
+        if kind != cache_key:
+            self._cache.pop(kind, None)
 
     async def _close_stale(self) -> None:
         while self._stale:
@@ -64,7 +68,14 @@ class ProviderManager:
         if self._redis is None:
             from redis.asyncio import from_url
 
-            self._redis = from_url(self.settings.redis_url, decode_responses=True)
+            # Short timeouts so Local Lab chaos (compose stop redis) fails fast
+            # instead of hanging Admin/dashboard requests.
+            self._redis = from_url(
+                self.settings.redis_url,
+                decode_responses=True,
+                socket_connect_timeout=1.5,
+                socket_timeout=1.5,
+            )
         return self._redis
 
     async def _active_row(
@@ -172,8 +183,17 @@ class ProviderManager:
 
     def _build_event_provider(self, provider_type: str, config: dict[str, Any]) -> Any:
         ptype = (provider_type or "memory").lower()
+        consumer_group = (
+            config.get("consumer_group")
+            or self.settings.kafka_consumer_group
+            or "brokerbridge-lab"
+        )
         if ptype == "memory":
-            return MemoryEventProvider()
+            provider = MemoryEventProvider(consumer_group=str(consumer_group))
+            provider.topic_prefix = config.get("topic_prefix") or self.settings.kafka_topic_prefix
+            topic_map = config.get("topic_map") if isinstance(config.get("topic_map"), dict) else None
+            provider.topic_map = topic_map
+            return provider
 
         brokers = (
             config.get("brokers")
@@ -186,7 +206,7 @@ class ProviderManager:
         brokers = str(brokers).strip()
         if not brokers:
             logger.warning("event_provider_missing_brokers falling_back=memory type=%s", ptype)
-            return MemoryEventProvider()
+            return MemoryEventProvider(consumer_group=str(consumer_group))
 
         topic_map = config.get("topic_map") if isinstance(config.get("topic_map"), dict) else None
         return KafkaEventProvider(
@@ -199,6 +219,7 @@ class ProviderManager:
             topic_prefix=config.get("topic_prefix") or self.settings.kafka_topic_prefix or "brokerbridge",
             topic_map=topic_map,
             provider_type=ptype,
+            consumer_group=str(consumer_group),
         )
 
     async def _load_event_secrets(self, row: ProviderConfig) -> dict[str, Any]:

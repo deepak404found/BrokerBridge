@@ -1,4 +1,7 @@
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Protocol, runtime_checkable
+
+EventHandler = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 
 @runtime_checkable
@@ -61,6 +64,16 @@ class SessionProvider(Protocol):
 @runtime_checkable
 class EventProvider(Protocol):
     async def publish(self, topic: str, event: dict[str, Any]) -> None: ...
+
+    async def subscribe(
+        self,
+        topics: Sequence[str],
+        handler: EventHandler,
+        *,
+        consumer_group: str | None = None,
+    ) -> None: ...
+
+    async def run_consumer(self) -> None: ...
 
     async def probe(self) -> dict[str, Any]: ...
 

@@ -285,9 +285,9 @@
                 <span class="sidebar-text font-medium">Event Bus</span>
             </a>
 
-            <a data-page="monitoring" onclick="navigateTo('monitoring')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
-                <i class="fa-solid fa-desktop w-5 text-center text-blue-400"></i>
-                <span class="sidebar-text font-medium">Monitoring</span>
+            <a data-page="replay" onclick="navigateTo('replay')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-white/5 hover:text-white cursor-pointer transition">
+                <i class="fa-solid fa-rotate-left w-5 text-center text-cyan-400"></i>
+                <span class="sidebar-text font-medium">Replay</span>
             </a>
 
             <div class="text-[10px] font-bold text-gray-500 uppercase px-3 mt-4 mb-1 sidebar-text tracking-wider">Governance & Tools</div>
@@ -406,23 +406,46 @@
 
         <main class="flex-1 overflow-y-auto p-6 bg-dark-900/60 relative" id="pages-container">
 
-            <!-- PAGE 1: DASHBOARD -->
+            <!-- PAGE 1: DASHBOARD (includes former Monitoring KPIs + failovers) -->
             <section id="page-dashboard" class="page-content space-y-6">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
                         <h1 class="text-xl font-bold text-white tracking-tight">Platform Operations Console</h1>
-                        <p class="text-xs text-gray-400">Dashboard KPIs and charts will connect when telemetry APIs ship.</p>
+                        <p class="text-xs text-gray-400">KPIs, failovers, engine &amp; rate pressure from <span class="font-mono text-emerald-400">/api/v1/monitoring/*</span> · auto-refresh ~5s</p>
                     </div>
+                    <button onclick="window.W5Admin && W5Admin.loadDashboard()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold">Refresh</button>
                 </div>
-
-                <div class="glass-panel rounded-xl p-12 text-center space-y-3">
-                    <div class="w-12 h-12 mx-auto rounded-full bg-white/5 flex items-center justify-center text-gray-500">
-                        <i class="fa-solid fa-plug-circle-xmark text-lg"></i>
+                <div id="w5-dep-banner" class="hidden rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-2.5 text-xs text-rose-100"></div>
+                <div id="w5-dashboard-root" class="space-y-3">
+                    <div class="glass-panel rounded-xl p-8 text-center text-gray-500 text-xs">Loading live KPIs…</div>
+                </div>
+                <div class="flex flex-wrap gap-2 text-xs">
+                    <button type="button" onclick="navigateTo('broker-health')" class="px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-gray-300"><i class="fa-solid fa-heart-pulse text-rose-400 mr-1"></i>Broker Health</button>
+                    <button type="button" onclick="navigateTo('rate-limits')" class="px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-gray-300"><i class="fa-solid fa-gauge-high text-amber-400 mr-1"></i>Rate Limits</button>
+                    <button type="button" onclick="navigateTo('orders')" class="px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-gray-300"><i class="fa-solid fa-bolt text-yellow-400 mr-1"></i>Orders</button>
+                    <button type="button" onclick="navigateTo('events')" class="px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-gray-300"><i class="fa-solid fa-stream text-teal-400 mr-1"></i>Event Bus</button>
+                    <button type="button" onclick="navigateTo('simulator')" class="px-2.5 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-200"><i class="fa-solid fa-bug mr-1"></i>Chaos Simulator</button>
+                </div>
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="p-4 border-b border-white/10 flex items-center justify-between gap-2">
+                        <div class="text-sm text-white font-semibold">Recent failovers</div>
+                        <span class="text-[10px] text-gray-500 font-mono">GET /monitoring/failovers</span>
                     </div>
-                    <h2 class="text-sm font-semibold text-white">Not connected yet</h2>
-                    <p class="text-xs text-gray-400 max-w-lg mx-auto leading-relaxed">APIs for this view land in a later wave. Live data is available under Brokers, Sessions, and Static IPs.</p>
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                            <tr>
+                                <th class="py-3 px-4">When</th>
+                                <th class="py-3 px-4">Reason</th>
+                                <th class="py-3 px-4">From</th>
+                                <th class="py-3 px-4">To</th>
+                            </tr>
+                        </thead>
+                        <tbody id="w5-failovers-tbody" class="divide-y divide-white/5 font-mono text-gray-300">
+                            <tr><td colspan="4" class="py-6 px-4 text-center text-gray-500">Open Dashboard after sign-in.</td></tr>
+                        </tbody>
+                    </table>
+                    <div id="w5-failovers-pager"></div>
                 </div>
-
             </section>
 
             <!-- PAGE 2: CLIENT MANAGEMENT -->
@@ -483,6 +506,7 @@
                             </tbody>
                         </table>
                     </div>
+                    <div id="w5-brokers-pager"></div>
                 </div>
             </section>
 
@@ -553,6 +577,7 @@
                             </tbody>
                         </table>
                     </div>
+                    <div id="w5-ips-pager"></div>
                 </div>
             </section>
 
@@ -645,6 +670,7 @@
                             </tbody>
                         </table>
                     </div>
+                    <div id="w5-orders-pager"></div>
                 </div>
             </section>
 
@@ -751,6 +777,7 @@
                             </tbody>
                         </table>
                     </div>
+                    <div id="w5-sessions-pager"></div>
                 </div>
             </section>
 
@@ -796,14 +823,14 @@
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
                         <h1 class="text-xl font-bold text-white tracking-tight">Event Bus</h1>
-                        <p class="text-xs text-gray-400">Recent transactional outbox rows (Postgres). Worker drains to EventProvider (Memory / Redpanda / Kafka). Auto-updates via WebSocket.</p>
+                        <p class="text-xs text-gray-400">Consumer-backed live feed (Kafka/Memory) with outbox fallback. WebSocket auto-refresh.</p>
                         <p id="w4-events-live-status" class="text-[10px] text-gray-500 mt-1">Idle</p>
                     </div>
                     <div class="flex gap-2">
                         <button onclick="window.W4Admin && W4Admin.drainEvents()" class="px-3.5 py-2 bg-dark-700 hover:bg-white/10 text-gray-200 rounded-lg text-xs font-semibold transition">
                             Drain now
                         </button>
-                        <button onclick="window.W4Admin && W4Admin.loadEvents()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition">
+                        <button onclick="window.W5Admin && W5Admin.loadEventsPaged()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition">
                             <i class="fa-solid fa-rotate mr-1"></i> Reload
                         </button>
                     </div>
@@ -822,30 +849,37 @@
                                 </tr>
                             </thead>
                             <tbody id="w4-events-tbody" class="divide-y divide-white/5 font-mono text-gray-300">
-                                <tr><td colspan="5" class="py-6 px-4 text-center text-gray-500">Sign in, then open Event Bus to load outbox rows.</td></tr>
+                                <tr><td colspan="5" class="py-6 px-4 text-center text-gray-500">Sign in, then open Event Bus to load live/consumed events.</td></tr>
                             </tbody>
                         </table>
                     </div>
+                    <div id="w5-events-pager"></div>
                 </div>
             </section>
 
-            <!-- PAGE 12: MONITORING -->
-            <section id="page-monitoring" class="page-content hidden space-y-6">
+            <!-- PAGE: REPLAY -->
+            <section id="page-replay" class="page-content hidden space-y-6">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
-                        <h1 class="text-xl font-bold text-white tracking-tight">System Infrastructure Telemetry</h1>
-                        <p class="text-xs text-gray-400">Grafana-style monitoring APIs land in a later wave.</p>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Order Replay / Recovery</h1>
+                        <p class="text-xs text-gray-400">Scan CREATED / SUBMITTING / INDOUBT orders and recover idempotently.</p>
                     </div>
+                    <button onclick="window.W5Admin && W5Admin.runReplay()" class="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold">Run replay</button>
                 </div>
-
-                <div class="glass-panel rounded-xl p-12 text-center space-y-3">
-                    <div class="w-12 h-12 mx-auto rounded-full bg-white/5 flex items-center justify-center text-gray-500">
-                        <i class="fa-solid fa-plug-circle-xmark text-lg"></i>
-                    </div>
-                    <h2 class="text-sm font-semibold text-white">Not connected yet</h2>
-                    <p class="text-xs text-gray-400 max-w-lg mx-auto leading-relaxed">APIs for this view land in a later wave. Live data is available under Brokers, Sessions, and Static IPs.</p>
+                <div id="w5-replay-stats" class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="glass-panel rounded-xl p-8 text-center text-gray-500 text-xs col-span-2 md:col-span-4">Load Replay after sign-in.</div>
                 </div>
+                <details class="glass-panel rounded-xl p-4">
+                    <summary class="text-xs text-gray-400 cursor-pointer">Raw JSON detail</summary>
+                    <pre id="w5-replay-detail" class="code-block rounded-lg p-3 text-[11px] overflow-auto mt-3 min-h-[4rem]">—</pre>
+                </details>
+            </section>
 
+            <!-- PAGE 12: MONITORING (redirected to Dashboard — kept for deep links) -->
+            <section id="page-monitoring" class="page-content hidden space-y-6">
+                <div class="glass-panel rounded-xl p-8 text-center text-gray-400 text-xs">
+                    Monitoring lives on <button type="button" class="text-indigo-300 underline" onclick="navigateTo('dashboard')">Dashboard</button>.
+                </div>
             </section>
 
             <!-- PAGE 13: AUDIT LOGS -->
@@ -853,18 +887,26 @@
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
                         <h1 class="text-xl font-bold text-white tracking-tight">SOC2 Compliance Audit Trail</h1>
-                        <p class="text-xs text-gray-400">Audit log APIs land in a later wave.</p>
+                        <p id="w5-audit-hint" class="text-xs text-gray-400">Simulator toggle history (ops activity). Full SOC2 audit warehouse lands later.</p>
                     </div>
+                    <button onclick="window.W5Admin && W5Admin.loadAudit()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold">Refresh</button>
                 </div>
 
-                <div class="glass-panel rounded-xl p-12 text-center space-y-3">
-                    <div class="w-12 h-12 mx-auto rounded-full bg-white/5 flex items-center justify-center text-gray-500">
-                        <i class="fa-solid fa-plug-circle-xmark text-lg"></i>
-                    </div>
-                    <h2 class="text-sm font-semibold text-white">Not connected yet</h2>
-                    <p class="text-xs text-gray-400 max-w-lg mx-auto leading-relaxed">APIs for this view land in a later wave. Live data is available under Brokers, Sessions, and Static IPs.</p>
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                            <tr>
+                                <th class="py-3 px-4">When</th>
+                                <th class="py-3 px-4">Action</th>
+                                <th class="py-3 px-4">Fault</th>
+                                <th class="py-3 px-4">Source</th>
+                            </tr>
+                        </thead>
+                        <tbody id="w5-audit-tbody" class="divide-y divide-white/5 font-mono text-gray-300">
+                            <tr><td colspan="4" class="py-6 px-4 text-center text-gray-500">Open Audit Logs after sign-in.</td></tr>
+                        </tbody>
+                    </table>
                 </div>
-
             </section>
 
             <!-- PAGE 14: RUNTIME CONFIG -->
@@ -872,7 +914,7 @@
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
                         <h1 class="text-xl font-bold text-white tracking-tight">Runtime Dynamic Configuration</h1>
-                        <p class="text-xs text-gray-400">Event provider hot-swap (FR-21). Validate → activate → reconnect without restart. Infra/broker credential polish lands later.</p>
+                        <p class="text-xs text-gray-400">Provider hot-swap for event, infrastructure, and broker defaults. Secrets are write-only / masked.</p>
                     </div>
                 </div>
 
@@ -953,6 +995,53 @@
                     </div>
                     <button onclick="window.W4Admin && W4Admin.saveRotationConfig()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold">Save rotation config</button>
                 </div>
+
+                <div class="glass-panel rounded-xl p-5 space-y-4">
+                    <div class="flex items-center justify-between gap-3">
+                        <h2 class="text-sm font-semibold text-white">Infrastructure provider</h2>
+                        <button onclick="window.W5Admin && W5Admin.loadInfraProvider()" class="px-2.5 py-1 bg-dark-700 hover:bg-white/10 text-xs text-gray-300 rounded">Reload</button>
+                    </div>
+                    <p id="w5-infra-status" class="text-xs text-gray-400">Sign in to load infra provider.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <label class="space-y-1">
+                            <span class="text-gray-400">provider_type</span>
+                            <select id="w5-infra-type" class="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-white">
+                                <option value="mock">mock</option>
+                                <option value="vultr">vultr (W6)</option>
+                            </select>
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-gray-400">api_key (write-only)</span>
+                            <input id="w5-infra-api-key" type="password" autocomplete="new-password" class="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-white" placeholder="leave blank to keep" />
+                        </label>
+                    </div>
+                    <button onclick="window.W5Admin && W5Admin.activateInfraProvider(true)" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold">Validate &amp; activate</button>
+                </div>
+
+                <div class="glass-panel rounded-xl p-5 space-y-4">
+                    <div class="flex items-center justify-between gap-3">
+                        <h2 class="text-sm font-semibold text-white">Broker default provider</h2>
+                        <button onclick="window.W5Admin && W5Admin.loadBrokerProvider()" class="px-2.5 py-1 bg-dark-700 hover:bg-white/10 text-xs text-gray-300 rounded">Reload</button>
+                    </div>
+                    <p id="w5-broker-status" class="text-xs text-gray-400">Sign in to load broker provider.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <label class="space-y-1">
+                            <span class="text-gray-400">provider_type</span>
+                            <select id="w5-broker-type" class="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-white">
+                                <option value="mock">mock</option>
+                            </select>
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-gray-400">api_key (write-only)</span>
+                            <input id="w5-broker-api-key" type="password" autocomplete="new-password" class="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-white" placeholder="leave blank to keep" />
+                        </label>
+                        <label class="space-y-1">
+                            <span class="text-gray-400">api_secret (write-only)</span>
+                            <input id="w5-broker-api-secret" type="password" autocomplete="new-password" class="w-full bg-dark-800 border border-white/10 rounded-lg px-3 py-2 text-white" placeholder="leave blank to keep" />
+                        </label>
+                    </div>
+                    <button onclick="window.W5Admin && W5Admin.activateBrokerProvider(true)" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold">Validate &amp; activate</button>
+                </div>
             </section>
 
             <!-- PAGE 15: FAILURE SIMULATOR -->
@@ -960,18 +1049,22 @@
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
                         <h1 class="text-xl font-bold text-white tracking-tight">Chaos Engineering & Failure Injection</h1>
-                        <p class="text-xs text-gray-400">Chaos injection APIs land in a later wave.</p>
+                        <p class="text-xs text-gray-400"><span class="text-rose-300 font-semibold">Enabled = fault is active now</span> (ongoing until disabled/cleared). Mock broker &amp; infra APIs behave faultily — not just Event Bus logs. Complementary: <span class="font-mono">docker compose stop redis</span>.</p>
                     </div>
+                    <button onclick="window.W5Admin && W5Admin.clearSim()" class="px-3.5 py-2 bg-dark-700 hover:bg-white/10 text-gray-200 rounded-lg text-xs font-semibold">Clear all</button>
                 </div>
-
-                <div class="glass-panel rounded-xl p-12 text-center space-y-3">
-                    <div class="w-12 h-12 mx-auto rounded-full bg-white/5 flex items-center justify-center text-gray-500">
-                        <i class="fa-solid fa-plug-circle-xmark text-lg"></i>
-                    </div>
-                    <h2 class="text-sm font-semibold text-white">Not connected yet</h2>
-                    <p class="text-xs text-gray-400 max-w-lg mx-auto leading-relaxed">APIs for this view land in a later wave. Live data is available under Brokers, Sessions, and Static IPs.</p>
+                <div id="w5-sim-links" class="hidden glass-panel rounded-xl px-4 py-3 text-xs text-gray-300 flex flex-wrap items-center gap-3">
+                    <i class="fa-solid fa-circle-info text-blue-400"></i>
+                    <span>Active faults change Orders, Broker Health, allocate IP, and Dashboard KPIs.</span>
+                    <button type="button" onclick="navigateTo('orders')" class="px-2.5 py-1 rounded bg-amber-600/30 hover:bg-amber-600/50 text-amber-100 font-semibold">Orders</button>
+                    <button type="button" onclick="navigateTo('broker-health')" class="px-2.5 py-1 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-100 font-semibold">Broker Health</button>
+                    <button type="button" onclick="navigateTo('dashboard')" class="px-2.5 py-1 rounded bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 font-semibold">Dashboard</button>
+                    <button type="button" onclick="navigateTo('events')" class="px-2.5 py-1 rounded bg-teal-600/30 hover:bg-teal-600/50 text-teal-200 font-semibold">Event Bus</button>
+                    <button type="button" onclick="navigateTo('audit-logs')" class="px-2.5 py-1 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 font-semibold">Audit Logs</button>
                 </div>
-
+                <div id="w5-sim-faults" class="space-y-3">
+                    <div class="glass-panel rounded-xl p-8 text-center text-gray-500 text-xs">Loading simulator faults…</div>
+                </div>
             </section>
 
             <!-- PAGE 16: SECURITY -->
@@ -1383,5 +1476,6 @@
     <script src="/admin/js/w2.js"></script>
     <script src="/admin/js/w3.js"></script>
     <script src="/admin/js/w4.js"></script>
+    <script src="/admin/js/w5.js"></script>
 </body>
 </html>

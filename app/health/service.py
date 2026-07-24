@@ -105,7 +105,10 @@ class HealthService:
         try:
             probe = await broker_provider.probe()
             latency_ms = (time.perf_counter() - started) * 1000.0
-            connectivity = bool(probe.get("ok", True))
+            if "connectivity" in probe:
+                connectivity = bool(probe.get("connectivity"))
+            else:
+                connectivity = bool(probe.get("ok", True))
             success_rate = float(probe.get("success_rate", 1.0 if connectivity else 0.0))
             timeout_rate = float(probe.get("timeout_rate", 0.0 if connectivity else 1.0))
         except Exception:

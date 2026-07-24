@@ -2,6 +2,22 @@ import itertools
 from typing import Any
 from uuid import uuid4
 
+from app.sim.flags import infra_fault_enabled
+
+
+class MockInfrastructureError(Exception):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status: int = 503,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status = status
+
 
 class MockInfrastructureProvider:
     """Mock cloud infra using documentation-range IPs (198.51.100.0/24, 203.0.113.0/24)."""
@@ -10,8 +26,17 @@ class MockInfrastructureProvider:
         self._ip_counter = itertools.count(1)
         self._ips: dict[str, dict[str, Any]] = {}
         self._instances: dict[str, dict[str, Any]] = {}
+        self._probe_fail: bool = False
+
+    def set_probe_fail(self, enabled: bool) -> None:
+        self._probe_fail = bool(enabled)
+
+    def _fault_active(self) -> bool:
+        return bool(self._probe_fail) or infra_fault_enabled()
 
     async def probe(self) -> dict[str, Any]:
+        if self._fault_active():
+            return {"ok": False, "provider": "mock", "error": "INFRA_UNAVAILABLE"}
         return {"ok": True, "provider": "mock"}
 
     def _next_ip(self, region: str) -> str:
@@ -28,6 +53,12 @@ class MockInfrastructureProvider:
         return f"198.51.100.{host}"
 
     async def create_ip(self, region: str, **kwargs: Any) -> dict[str, Any]:
+        if self._fault_active():
+            raise MockInfrastructureError(
+                "INFRA_UNAVAILABLE",
+                "Mock infrastructure injected fault (probe/create_ip)",
+                status=503,
+            )
         external_id = f"mock-ip-{uuid4().hex[:12]}"
         # Avoid reusing addresses already tracked in this process.
         used = {r.get("ip_address") for r in self._ips.values()}

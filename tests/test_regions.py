@@ -1,4 +1,5 @@
 import pytest
+from tests.helpers import as_items
 
 
 async def _auth(client):
@@ -28,7 +29,7 @@ async def test_list_ips_region_filter(client):
             json={"region": "ord"},
         )
     ).json()
-    listed = (await client.get("/api/v1/infrastructure/ips?region=ord", headers=headers)).json()
+    listed = as_items((await client.get("/api/v1/infrastructure/ips?region=ord", headers=headers)).json())
     ids = {row["id"] for row in listed}
     assert ord_ip["id"] in ids
     assert ewr["id"] not in ids
@@ -37,7 +38,7 @@ async def test_list_ips_region_filter(client):
 @pytest.mark.asyncio
 async def test_routing_excludes_wrong_region_ip(client):
     headers = await _auth(client)
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     alpha = next(b for b in brokers if "Alpha" in b["display_name"])
     # Alpha allows ewr+ord — assign ord IP then prefer ewr → REGION_IP_MISMATCH exclude
     ip = (

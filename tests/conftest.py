@@ -36,6 +36,12 @@ async def configured_app(sqlite_url, monkeypatch):
     db_session.SessionLocal = None
     provider_manager._manager = None
 
+    from app.events.bus_buffer import reset_bus_buffer_for_tests
+    from app.sim.service import reset_sim_for_tests
+
+    reset_bus_buffer_for_tests()
+    reset_sim_for_tests()
+
     settings = get_settings()
     factory = db_session.configure_engine(settings.database_url)
     assert db_session.engine is not None
@@ -53,6 +59,8 @@ async def configured_app(sqlite_url, monkeypatch):
     db_session.engine = None
     db_session.SessionLocal = None
     provider_manager._manager = None
+    reset_bus_buffer_for_tests()
+    reset_sim_for_tests()
 
 
 @pytest.fixture
@@ -70,6 +78,11 @@ def sync_client(sqlite_url, monkeypatch):
     db_session.engine = None
     db_session.SessionLocal = None
     provider_manager._manager = None
+    from app.events.bus_buffer import reset_bus_buffer_for_tests
+    from app.sim.service import reset_sim_for_tests
+
+    reset_bus_buffer_for_tests()
+    reset_sim_for_tests()
     app = create_app()
     with TestClient(app) as tc:
         yield tc
@@ -77,3 +90,5 @@ def sync_client(sqlite_url, monkeypatch):
     db_session.engine = None
     db_session.SessionLocal = None
     provider_manager._manager = None
+    reset_bus_buffer_for_tests()
+    reset_sim_for_tests()

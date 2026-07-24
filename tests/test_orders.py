@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from tests.helpers import as_items
 
 
 async def _login(client):
@@ -43,7 +44,7 @@ async def _assign_ip(client, headers, broker_id, client_id, region="ewr"):
 async def test_order_blocked_without_assigned_ip(client):
     token = await _login(client)
     headers = {"Authorization": f"Bearer {token}"}
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     client_id = brokers[0]["client_id"]
     res = await client.post(
         "/api/v1/orders/buy",
@@ -65,7 +66,7 @@ async def test_order_blocked_without_assigned_ip(client):
 async def test_buy_idempotent_and_cancel(client):
     token = await _login(client)
     headers = {"Authorization": f"Bearer {token}"}
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     client_id = brokers[0]["client_id"]
     await _assign_ip(client, headers, brokers[0]["id"], client_id)
     await client.post("/api/v1/monitoring/brokers/health/probe", headers=headers)
@@ -102,7 +103,7 @@ async def test_buy_idempotent_and_cancel(client):
 async def test_sell_and_engine_stats(client):
     token = await _login(client)
     headers = {"Authorization": f"Bearer {token}"}
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     client_id = brokers[0]["client_id"]
     await _assign_ip(client, headers, brokers[0]["id"], client_id)
     await client.post("/api/v1/monitoring/brokers/health/probe", headers=headers)

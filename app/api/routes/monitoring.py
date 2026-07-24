@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,14 +7,17 @@ from app.api.openapi import AUTH_ERRORS, success_response
 from app.auth.deps import require_roles
 from app.config.settings import Settings, get_settings
 from app.db.session import get_db
+from app.events.bus_buffer import get_bus_buffer
 from app.events.outbox import drain_outbox, list_outbox
 from app.health.service import HealthService
 from app.models.user import User
+from app.monitoring.service import build_dashboard
 from app.orders.service import OrderService
 from app.providers.manager import get_provider_manager
 from app.rate_limit.service import RateLimitService
 from app.routing.engine import RoutingEngine
 from app.schemas.brokers import SessionStatusResponse
+from app.schemas.dashboard import DashboardResponse
 from app.schemas.events import OutboxDrainResponse, OutboxEventResponse
 from app.schemas.monitoring_w3 import (
     FailoverEventResponse,
@@ -24,6 +27,7 @@ from app.schemas.monitoring_w3 import (
     RoutingPreviewRequest,
     RoutingPreviewResponse,
 )
+from app.schemas.pagination import PaginatedList, pagination_example
 from app.sessions.service import SessionService
 
 router = APIRouter(prefix="/api/v1/monitoring", tags=["monitoring"], responses=AUTH_ERRORS)
@@ -68,21 +72,50 @@ _RATE_EXAMPLE = {
     "window_seconds": 1.0,
 }
 
+_EVENT_EXAMPLE = {
+    "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "event_type": "order.submitted",
+    "topic": "brokerbridge.orders",
+    "payload": {"order_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"},
+    "status": "consumed",
+    "error": None,
+    "correlation_id": None,
+    "created_at": "2026-07-24T12:00:00Z",
+    "sent_at": "2026-07-24T12:00:00Z",
+    "source": "consumed",
+}
+
+
+@router.get(
+    "/dashboard",
+    response_model=DashboardResponse,
+    summary="Aggregated operations dashboard KPIs",
+)
+async def dashboard(
+    _: Annotated[User, Depends(require_roles("admin", "ops", "readonly"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> DashboardResponse:
+    data = await build_dashboard(db, settings, get_provider_manager())
+    return DashboardResponse.model_validate(data)
+
 
 @router.get(
     "/sessions",
-    response_model=list[SessionStatusResponse],
+    response_model=PaginatedList[SessionStatusResponse],
     summary="List broker session statuses",
-    responses={200: success_response("Sessions", example=[_SESSION_EXAMPLE])},
+    responses={200: success_response("Sessions", example=pagination_example(_SESSION_EXAMPLE))},
 )
 async def list_sessions(
     _: Annotated[User, Depends(require_roles("admin", "ops", "readonly"))],
     db: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-) -> list[SessionStatusResponse]:
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> PaginatedList[SessionStatusResponse]:
     svc = SessionService(db, settings, get_provider_manager())
-    rows = await svc.list_all()
-    return [
+    rows, total = await svc.list_all(limit=limit, offset=offset)
+    items = [
         SessionStatusResponse(
             broker_account_id=sess.broker_account_id,
             broker_display_name=broker.display_name,
@@ -93,6 +126,7 @@ async def list_sessions(
         )
         for sess, broker in rows
     ]
+    return PaginatedList.build(items, total=total, limit=limit, offset=offset)
 
 
 @router.get(
@@ -144,12 +178,12 @@ async def list_rate_limits(
 
 @router.get(
     "/failovers",
-    response_model=list[FailoverEventResponse],
+    response_model=PaginatedList[FailoverEventResponse],
     summary="Recent failover events",
     responses={
         200: success_response(
             "Failovers",
-            example=[
+            example=pagination_example(
                 {
                     "id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
                     "order_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
@@ -159,7 +193,7 @@ async def list_rate_limits(
                     "details": {"status": 503},
                     "created_at": "2026-07-24T12:01:00Z",
                 }
-            ],
+            ),
         )
     },
 )
@@ -167,10 +201,18 @@ async def list_failovers(
     _: Annotated[User, Depends(require_roles("admin", "ops", "readonly"))],
     db: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    limit: int = Query(50, ge=1, le=200),
-) -> list[FailoverEventResponse]:
-    rows = await OrderService(db, settings, get_provider_manager()).list_failovers(limit=limit)
-    return [FailoverEventResponse.model_validate(r) for r in rows]
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> PaginatedList[FailoverEventResponse]:
+    rows, total = await OrderService(db, settings, get_provider_manager()).list_failovers(
+        limit=limit, offset=offset
+    )
+    return PaginatedList.build(
+        [FailoverEventResponse.model_validate(r) for r in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get(
@@ -252,35 +294,38 @@ async def routing_preview(
 
 @router.get(
     "/events",
-    response_model=list[OutboxEventResponse],
-    summary="Recent outbox / event bus rows",
-    responses={
-        200: success_response(
-            "Events",
-            example=[
-                {
-                    "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-                    "event_type": "ip.rotated",
-                    "topic": "ip",
-                    "payload": {"old_ip": "198.51.100.10", "new_ip": "198.51.100.22"},
-                    "status": "sent",
-                    "error": None,
-                    "correlation_id": None,
-                    "created_at": "2026-07-24T12:00:00Z",
-                    "sent_at": "2026-07-24T12:00:01Z",
-                }
-            ],
-        )
-    },
+    response_model=PaginatedList[OutboxEventResponse],
+    summary="Event Bus — consumer-backed live feed (outbox fallback)",
+    responses={200: success_response("Events", example=pagination_example(_EVENT_EXAMPLE))},
 )
 async def list_events(
     _: Annotated[User, Depends(require_roles("admin", "ops", "readonly"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    limit: int = Query(50, ge=1, le=200),
-    status: str | None = Query(default=None, description="pending|sent|error"),
-) -> list[OutboxEventResponse]:
-    rows = await list_outbox(db, limit=limit, status=status)
-    return [OutboxEventResponse.model_validate(r) for r in rows]
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    status: str | None = Query(default=None, description="pending|sent|error (outbox only)"),
+    source: Literal["auto", "consumed", "outbox"] = Query(
+        default="auto",
+        description="auto prefers consumer buffer; outbox forces Postgres outbox rows",
+    ),
+) -> PaginatedList[OutboxEventResponse]:
+    if source in {"auto", "consumed"}:
+        items, total = get_bus_buffer().list(limit=limit, offset=offset)
+        if items or source == "consumed":
+            return PaginatedList.build(
+                [OutboxEventResponse.model_validate(r) for r in items],
+                total=total,
+                limit=limit,
+                offset=offset,
+            )
+
+    rows, total = await list_outbox(db, limit=limit, offset=offset, status=status)
+    serialized = []
+    for r in rows:
+        data = OutboxEventResponse.model_validate(r).model_dump()
+        data["source"] = "outbox"
+        serialized.append(OutboxEventResponse.model_validate(data))
+    return PaginatedList.build(serialized, total=total, limit=limit, offset=offset)
 
 
 @router.post(

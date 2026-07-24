@@ -57,6 +57,19 @@ docker compose up --build -d
 
 Stack services: `api`, `worker`, `postgres`, `redis`, `redpanda`.
 
+Local Lab defaults (`.env.example`): `LOCK_PROVIDER=redis`, `SESSION_PROVIDER=redis`,
+`RATE_LIMIT_PROVIDER=redis`. Pytest forces Memory via `tests/conftest.py`. Cache stays
+in-process Memory. Resilience demo:
+
+```bash
+docker compose stop redis   # /health/ready → 503; Admin READY shows redis fail
+docker compose start redis  # ready recovers; Admin banner clears on auto-refresh
+```
+
+When Redis is down, rate-limit / session-ensure / IP-lock paths return
+`REDIS_UNAVAILABLE` (503). Dashboard still loads and surfaces redis `fail` + rate-limit
+unavailable note.
+
 Startup creates schema (`create_all`) and seeds mock providers + admin user. Alembic migration `001_initial` is also available for prod-style upgrades.
 
 ## Wave workflow

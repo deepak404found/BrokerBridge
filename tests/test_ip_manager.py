@@ -1,4 +1,5 @@
 import pytest
+from tests.helpers import as_items
 
 
 async def _login(client):
@@ -13,7 +14,7 @@ async def _login(client):
 async def test_ip_lifecycle_and_reuse_policy(client):
     token = await _login(client)
     headers = {"Authorization": f"Bearer {token}"}
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     broker_id = brokers[0]["id"]
     client_id = brokers[0]["client_id"]
 
@@ -78,7 +79,7 @@ async def test_ip_lifecycle_and_reuse_policy(client):
 async def test_concurrent_assign_second_fails(client):
     token = await _login(client)
     headers = {"Authorization": f"Bearer {token}"}
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     broker_id = brokers[0]["id"]
 
     ip1 = (

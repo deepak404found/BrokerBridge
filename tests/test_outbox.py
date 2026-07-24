@@ -4,6 +4,7 @@ from app.db.session import get_session_factory
 from app.events.outbox import drain_outbox, enqueue_outbox
 from app.providers.manager import get_provider_manager
 from app.providers.memory import MemoryEventProvider
+from tests.helpers import as_items
 
 
 async def _token(client) -> str:
@@ -38,7 +39,7 @@ async def test_outbox_drain_publishes_to_memory(client):
 async def test_order_place_enqueues_outbox(client):
     token = await _token(client)
     headers = {"Authorization": f"Bearer {token}"}
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     alpha = next(b for b in brokers if "Alpha" in b["display_name"])
     # ensure IP
     ip = (
@@ -79,5 +80,5 @@ async def test_order_place_enqueues_outbox(client):
         },
     )
     assert r.status_code == 201, r.text
-    events = (await client.get("/api/v1/monitoring/events", headers=headers)).json()
+    events = as_items((await client.get("/api/v1/monitoring/events", headers=headers)).json())
     assert any(e["event_type"] == "order.submitted" for e in events)

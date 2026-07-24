@@ -12,6 +12,29 @@ Commit + changelog updates happen **after wave testing**, only with user approva
 
 - Planning artifacts continue under `docs/plans/` for upcoming waves
 
+## [0.6.0] - 2026-07-24
+
+### Added
+
+- In-app EventProvider consumer (Memory fan-out + Kafka/Redpanda group consume) feeding Admin Event Bus live buffer
+- Worker + API fan-in consumer loops with reconnect on event-provider hot-swap
+- Order replay/recovery (`POST /api/v1/admin/replay/run`, Admin Replay page) for CREATED/SUBMITTING/INDOUBT
+- Monitoring dashboard aggregate (`GET /api/v1/monitoring/dashboard`); Admin Monitoring page merged into Dashboard
+- Failure simulator with real chaos faults for mock broker/infra (`/api/v1/admin/sim/faults`)
+- Redis-down Admin visibility: READY banner + dashboard redis/rate-limit health; `REDIS_UNAVAILABLE` (503) on dependent paths
+- Runtime Config polish for infrastructure + broker_default credential forms (secrets masked)
+- Consistent list pagination (`limit`/`offset`, `items`+`total`, max 100) across brokers, IPs, sessions, orders, events, failovers
+- Admin `w5.js` for Dashboard, Replay, Simulator, Event Bus pager, config polish
+- Pytest + `scripts/w5_compose_e2e.sh`; Chrome DevTools Admin walkthrough
+
+### Who / Where
+
+- Who: deepak404found
+- Where: branch `main`
+
+See `docs/changelogs/WAVE-05.md` for detail.
+
+
 ## [0.5.0] - 2026-07-24
 
 ### Added

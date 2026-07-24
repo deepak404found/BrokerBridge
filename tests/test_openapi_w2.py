@@ -1,4 +1,5 @@
 import pytest
+from tests.helpers import as_items
 
 
 PLACEHOLDER_FRAGMENTS = ('"string"', "additionalProp1", "'string'")

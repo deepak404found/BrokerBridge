@@ -52,6 +52,14 @@
     }
   }
 
+  function eventPayloadCell(r) {
+    if (window.W5Admin && typeof W5Admin.eventPayloadCell === "function") {
+      return W5Admin.eventPayloadCell(r);
+    }
+    const payload = JSON.stringify(r.payload || {}).slice(0, 120);
+    return `<span class="truncate inline-block max-w-xs" title="${payload.replace(/"/g, "&quot;")}">${payload}</span>`;
+  }
+
   function renderEvents(rows) {
     const tbody = document.getElementById("w4-events-tbody");
     if (!tbody) return;
@@ -62,9 +70,8 @@
     tbody.innerHTML = rows
       .map((r) => {
         const when = (r.created_at || "").replace("T", " ").slice(0, 19);
-        const payload = JSON.stringify(r.payload || {}).slice(0, 120);
         const st =
-          r.status === "sent"
+          r.status === "sent" || r.status === "consumed"
             ? "text-emerald-400"
             : r.status === "error"
               ? "text-rose-400"
@@ -73,8 +80,8 @@
             <td class="py-2.5 px-4 text-gray-400">${when}</td>
             <td class="py-2.5 px-4 text-white">${r.event_type}</td>
             <td class="py-2.5 px-4">${r.topic}</td>
-            <td class="py-2.5 px-4 ${st}">${r.status}</td>
-            <td class="py-2.5 px-4 text-gray-400 truncate max-w-xs" title="${payload.replace(/"/g, "&quot;")}">${payload}</td>
+            <td class="py-2.5 px-4 ${st}">${r.status}${r.source ? ` · ${r.source}` : ""}</td>
+            <td class="py-2.5 px-4 text-gray-400 max-w-xs">${eventPayloadCell(r)}</td>
           </tr>`;
       })
       .join("");
@@ -141,7 +148,11 @@
     const silent = Boolean(opts && opts.silent);
     try {
       await ensureAuth();
-      const rows = await api().json("/monitoring/events?limit=50");
+      const payload = await api().json("/monitoring/events?limit=50&offset=0");
+      const rows = api().asItems(payload);
+      const meta = api().pageMeta(payload, 50);
+      const src = rows[0] && rows[0].source === "consumed" ? "consumer live" : (rows.length ? (rows[0].source || "mixed") : "idle");
+      setEventsLiveStatus(`Feed: ${src} · total=${meta.total}`);
       renderEvents(rows);
     } catch (e) {
       if (!silent) errNotify(e);

@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.service import ConfigService
 from app.config.settings import Settings
 from app.core.errors import AppError
+from app.core.redis_deps import raise_redis_unavailable
 from app.models.broker import BrokerAccount
+from app.providers.errors import RedisUnavailableError
 from app.providers.manager import ProviderManager
 
 
@@ -35,7 +37,10 @@ class RateLimitService:
     async def snapshot_for_broker(self, broker: BrokerAccount) -> dict[str, Any]:
         limit = float(broker.rate_limit_rps or 50)
         rl = self.providers.get_rate_limit_provider()
-        snap = await rl.check(self._key(broker.id), limit=limit, window_seconds=1.0)
+        try:
+            snap = await rl.check(self._key(broker.id), limit=limit, window_seconds=1.0)
+        except RedisUnavailableError as exc:
+            raise_redis_unavailable(exc, op="rate limits")
         return {
             "broker_account_id": broker.id,
             "broker_display_name": broker.display_name,
@@ -63,7 +68,10 @@ class RateLimitService:
                 raise AppError("NOT_FOUND", "Broker not found", status_code=404)
             limit = float(broker.rate_limit_rps or 50)
         rl = self.providers.get_rate_limit_provider()
-        return await rl.check(self._key(broker_id), limit=float(limit), window_seconds=1.0)
+        try:
+            return await rl.check(self._key(broker_id), limit=float(limit), window_seconds=1.0)
+        except RedisUnavailableError as exc:
+            raise_redis_unavailable(exc, op="rate limits")
 
     async def consume(self, broker_id: uuid.UUID, *, limit: float | None = None) -> dict[str, Any]:
         if limit is None:
@@ -73,7 +81,10 @@ class RateLimitService:
                 raise AppError("NOT_FOUND", "Broker not found", status_code=404)
             limit = float(broker.rate_limit_rps or 50)
         rl = self.providers.get_rate_limit_provider()
-        return await rl.consume(self._key(broker_id), limit=float(limit), window_seconds=1.0)
+        try:
+            return await rl.consume(self._key(broker_id), limit=float(limit), window_seconds=1.0)
+        except RedisUnavailableError as exc:
+            raise_redis_unavailable(exc, op="rate limits")
 
     async def pressure(self, broker_id: uuid.UUID, *, limit: float | None = None) -> float:
         snap = await self.check(broker_id, limit=limit)

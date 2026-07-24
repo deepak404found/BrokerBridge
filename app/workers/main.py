@@ -1,4 +1,4 @@
-"""Background workers: OutboxPublisher + IpDrainWatcher heartbeat."""
+"""Background workers: OutboxPublisher + EventConsumer + IpDrainWatcher."""
 
 import asyncio
 import logging
@@ -6,6 +6,7 @@ import logging
 from app.config.settings import get_settings
 from app.core.logging import setup_logging
 from app.db.session import configure_engine, get_session_factory
+from app.events.consumer import event_consumer_loop
 from app.events.outbox import drain_outbox
 from app.providers.manager import get_provider_manager
 import app.models  # noqa: F401
@@ -26,7 +27,6 @@ async def outbox_publisher_loop(*, interval_seconds: float = 2.0) -> None:
                 version = await manager.active_event_version(session)
                 if version != last_version:
                     manager.invalidate("event")
-                    # Rebuild / reconnect producer
                     await manager.get_event_provider(session)
                     last_version = version
                     logger.info("event_provider_reconnected version=%s", version)
@@ -67,11 +67,17 @@ async def drain_watcher_loop(*, interval_seconds: float = 15.0) -> None:
 async def async_main() -> None:
     settings = get_settings()
     setup_logging(settings.log_level)
+    configure_engine(settings.database_url)
     logger.info("worker_started env=%s", settings.app_env)
-    await asyncio.gather(
-        outbox_publisher_loop(),
-        drain_watcher_loop(),
-    )
+    stop = asyncio.Event()
+    try:
+        await asyncio.gather(
+            outbox_publisher_loop(),
+            event_consumer_loop(group_suffix="", stop_event=stop),
+            drain_watcher_loop(),
+        )
+    finally:
+        stop.set()
 
 
 def main() -> None:

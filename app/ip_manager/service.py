@@ -3,12 +3,13 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
 from app.core.errors import AppError
+from app.core.redis_deps import acquire_lock, release_lock
 from app.events.outbox import enqueue_outbox
 from app.models.broker import BrokerAccount
 from app.models.config_item import ConfigurationItem
@@ -75,12 +76,21 @@ class IpManagerService:
         return list(result.scalars().all())
 
     async def allocate_ip(self, *, region: str) -> StaticIp:
+        from app.providers.infrastructure.mock import MockInfrastructureError
+
         infra = await self.providers.get_infrastructure_provider(self.db)
         # Mock providers may collide with DB-persisted addresses after restart;
         # retry a few times before surfacing a conflict.
         last_error: Exception | None = None
         for _ in range(8):
-            resource = await infra.create_ip(region)
+            try:
+                resource = await infra.create_ip(region)
+            except MockInfrastructureError as exc:
+                raise AppError(
+                    exc.code,
+                    exc.message,
+                    status_code=int(exc.status),
+                ) from exc
             row = StaticIp(
                 provider="mock",
                 external_id=resource["external_id"],
@@ -116,13 +126,22 @@ class IpManagerService:
             details={"cause": str(last_error) if last_error else None},
         )
 
-    async def list_ips(self, *, region: str | None = None) -> list[StaticIp]:
-        q = select(StaticIp).order_by(StaticIp.created_at.desc())
+    async def list_ips(
+        self, *, region: str | None = None, limit: int = 25, offset: int = 0
+    ) -> tuple[list[StaticIp], int]:
+        filters = []
         if region:
-            q = q.where(StaticIp.region == region)
+            filters.append(StaticIp.region == region)
+        count_q = select(func.count()).select_from(StaticIp)
+        if filters:
+            count_q = count_q.where(*filters)
+        total = int((await self.db.execute(count_q)).scalar_one() or 0)
+        q = select(StaticIp).order_by(StaticIp.created_at.desc())
+        if filters:
+            q = q.where(*filters)
+        q = q.limit(min(max(limit, 1), 100)).offset(max(offset, 0))
         result = await self.db.execute(q)
-        return list(result.scalars().all())
-
+        return list(result.scalars().all()), total
     async def get_ip(self, ip_id: uuid.UUID) -> StaticIp:
         result = await self.db.execute(select(StaticIp).where(StaticIp.id == ip_id))
         row = result.scalar_one_or_none()
@@ -165,10 +184,10 @@ class IpManagerService:
         broker_lock = f"lock:broker:{broker_account_id}:ip"
         ip_lock = f"lock:ip:{ip_id}"
         token = uuid.uuid4().hex
-        if not await lock.acquire(broker_lock, 30.0, token):
+        if not await acquire_lock(lock, broker_lock, 30.0, token, op="broker IP lock"):
             raise AppError("LOCK_CONTENTION", "Broker IP lock held", status_code=409)
-        if not await lock.acquire(ip_lock, 30.0, token):
-            await lock.release(broker_lock, token)
+        if not await acquire_lock(lock, ip_lock, 30.0, token, op="IP lock"):
+            await release_lock(lock, broker_lock, token)
             raise AppError("LOCK_CONTENTION", "IP lock held", status_code=409)
         try:
             ip = await self.get_ip(ip_id)
@@ -219,14 +238,14 @@ class IpManagerService:
             await self.db.refresh(assignment)
             return assignment
         finally:
-            await lock.release(ip_lock, token)
-            await lock.release(broker_lock, token)
+            await release_lock(lock, ip_lock, token)
+            await release_lock(lock, broker_lock, token)
 
     async def attach(self, ip_id: uuid.UUID, *, instance_id: uuid.UUID) -> StaticIp:
         lock = self.providers.get_lock_provider()
         ip_lock = f"lock:ip:{ip_id}"
         token = uuid.uuid4().hex
-        if not await lock.acquire(ip_lock, 30.0, token):
+        if not await acquire_lock(lock, ip_lock, 30.0, token, op="IP lock"):
             raise AppError("LOCK_CONTENTION", "IP lock held", status_code=409)
         try:
             ip = await self.get_ip(ip_id)
@@ -245,13 +264,13 @@ class IpManagerService:
             await self.db.refresh(ip)
             return ip
         finally:
-            await lock.release(ip_lock, token)
+            await release_lock(lock, ip_lock, token)
 
     async def detach(self, ip_id: uuid.UUID) -> StaticIp:
         lock = self.providers.get_lock_provider()
         ip_lock = f"lock:ip:{ip_id}"
         token = uuid.uuid4().hex
-        if not await lock.acquire(ip_lock, 30.0, token):
+        if not await acquire_lock(lock, ip_lock, 30.0, token, op="IP lock"):
             raise AppError("LOCK_CONTENTION", "IP lock held", status_code=409)
         try:
             ip = await self.get_ip(ip_id)
@@ -263,13 +282,13 @@ class IpManagerService:
             await self.db.refresh(ip)
             return ip
         finally:
-            await lock.release(ip_lock, token)
+            await release_lock(lock, ip_lock, token)
 
     async def release(self, ip_id: uuid.UUID) -> StaticIp:
         lock = self.providers.get_lock_provider()
         ip_lock = f"lock:ip:{ip_id}"
         token = uuid.uuid4().hex
-        if not await lock.acquire(ip_lock, 30.0, token):
+        if not await acquire_lock(lock, ip_lock, 30.0, token, op="IP lock"):
             raise AppError("LOCK_CONTENTION", "IP lock held", status_code=409)
         try:
             ip = await self.get_ip(ip_id)
@@ -317,7 +336,7 @@ class IpManagerService:
             await self.db.refresh(ip)
             return ip
         finally:
-            await lock.release(ip_lock, token)
+            await release_lock(lock, ip_lock, token)
 
     async def list_assignments(self) -> list[dict]:
         result = await self.db.execute(

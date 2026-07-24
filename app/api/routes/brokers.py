@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, status
+from fastapi import APIRouter, Body, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.openapi import AUTH_ERRORS, NOT_FOUND, UNPROCESSABLE, success_response
@@ -17,6 +17,7 @@ from app.schemas.brokers import (
     BrokerResponse,
     SessionStatusResponse,
 )
+from app.schemas.pagination import PaginatedList, pagination_example
 from app.sessions.service import SessionService
 
 router = APIRouter(prefix="/api/v1/brokers", tags=["brokers"], responses=AUTH_ERRORS)
@@ -107,16 +108,23 @@ async def create_broker(
 
 @router.get(
     "",
-    response_model=list[BrokerResponse],
+    response_model=PaginatedList[BrokerResponse],
     summary="List broker accounts",
-    responses={200: success_response("Broker list", example=[_BROKER_EXAMPLE])},
+    responses={200: success_response("Broker list", example=pagination_example(_BROKER_EXAMPLE))},
 )
 async def list_brokers(
     _: Annotated[User, Depends(require_roles("admin", "ops", "readonly"))],
     svc: Annotated[BrokerService, Depends(_broker_svc)],
-) -> list[BrokerResponse]:
-    rows = await svc.list()
-    return [BrokerResponse.model_validate(r) for r in rows]
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> PaginatedList[BrokerResponse]:
+    rows, total = await svc.list(limit=limit, offset=offset)
+    return PaginatedList.build(
+        [BrokerResponse.model_validate(r) for r in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get(

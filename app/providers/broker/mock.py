@@ -3,6 +3,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from app.sim.flags import active_broker_fault
+
 
 _DEFAULT_CAPS = {
     "asset_classes": ["equities", "options"],
@@ -22,14 +24,66 @@ class MockBrokerProvider:
         self._fail_remaining: int = 0
         self._fail_status: int = 503
         self._fail_code: str = "BROKER_UNAVAILABLE"
+        self._fail_retryable: bool = True
+        self._persistent_fault: dict[str, Any] | None = None
 
     def fail_next_n(self, n: int, *, status: int = 503, code: str = "BROKER_UNAVAILABLE") -> None:
         """Test hook: next N place_order calls raise a retryable failure."""
         self._fail_remaining = max(0, int(n))
         self._fail_status = status
         self._fail_code = code
+        self._fail_retryable = True
+
+    def set_persistent_fault(
+        self,
+        *,
+        code: str = "BROKER_UNAVAILABLE",
+        status: int = 503,
+        retryable: bool = True,
+    ) -> None:
+        self._persistent_fault = {"code": code, "status": status, "retryable": retryable}
+
+    def clear_persistent_fault(self) -> None:
+        self._persistent_fault = None
+
+    def clear_faults(self) -> None:
+        self._persistent_fault = None
+        self._fail_remaining = 0
+
+    def _active_fault(self) -> dict[str, Any] | None:
+        """Prefer live simulator flags so faults survive provider cache rebuilds."""
+        live = active_broker_fault()
+        if live:
+            return {
+                "code": str(live["code"]),
+                "status": int(live.get("status", 503)),
+                "retryable": bool(live.get("retryable", True)),
+            }
+        return self._persistent_fault
 
     async def probe(self) -> dict[str, Any]:
+        fault = self._active_fault()
+        if fault:
+            code = str(fault["code"])
+            # Hard reject: broker is reachable but rejects orders — degrade health without
+            # fully evacuating the route so place_order can surface BROKER_REJECT.
+            if code == "BROKER_REJECT" or fault.get("retryable") is False:
+                return {
+                    "ok": False,
+                    "provider": "mock",
+                    "error": code,
+                    "success_rate": 0.25,
+                    "timeout_rate": 0.15,
+                    "connectivity": True,
+                }
+            return {
+                "ok": False,
+                "provider": "mock",
+                "error": code,
+                "success_rate": 0.0,
+                "timeout_rate": 1.0,
+                "connectivity": False,
+            }
         return {
             "ok": True,
             "provider": "mock",
@@ -38,13 +92,21 @@ class MockBrokerProvider:
         }
 
     async def place_order(self, payload: dict[str, Any]) -> dict[str, Any]:
+        fault = self._active_fault()
+        if fault:
+            raise MockBrokerError(
+                fault["code"],
+                f"Mock broker injected fault ({fault['status']})",
+                status=int(fault["status"]),
+                retryable=bool(fault["retryable"]),
+            )
         if self._fail_remaining > 0:
             self._fail_remaining -= 1
             raise MockBrokerError(
                 self._fail_code,
                 f"Mock broker injected failure ({self._fail_status})",
                 status=self._fail_status,
-                retryable=True,
+                retryable=self._fail_retryable,
             )
         broker_order_id = f"mock-{uuid.uuid4().hex[:8]}"
         result = {

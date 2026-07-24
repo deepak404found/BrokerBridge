@@ -74,19 +74,26 @@ class OrderService:
         client_id: uuid.UUID | None = None,
         status: str | None = None,
         symbol: str | None = None,
-        limit: int = 50,
+        limit: int = 25,
         offset: int = 0,
-    ) -> list[Order]:
-        q = select(Order).order_by(Order.created_at.desc())
+    ) -> tuple[list[Order], int]:
+        filters = []
         if client_id:
-            q = q.where(Order.client_id == client_id)
+            filters.append(Order.client_id == client_id)
         if status:
-            q = q.where(Order.status == status)
+            filters.append(Order.status == status)
         if symbol:
-            q = q.where(Order.symbol == symbol)
-        q = q.limit(min(limit, 200)).offset(max(offset, 0))
+            filters.append(Order.symbol == symbol)
+        count_q = select(func.count()).select_from(Order)
+        if filters:
+            count_q = count_q.where(*filters)
+        total = int((await self.db.execute(count_q)).scalar_one() or 0)
+        q = select(Order).order_by(Order.created_at.desc())
+        if filters:
+            q = q.where(*filters)
+        q = q.limit(min(max(limit, 1), 100)).offset(max(offset, 0))
         result = await self.db.execute(q)
-        return list(result.scalars().all())
+        return list(result.scalars().all()), total
 
     async def engine_stats(self) -> dict[str, Any]:
         global _inflight_count
@@ -99,11 +106,20 @@ class OrderService:
             "execution_mode": await self._execution_mode(),
         }
 
-    async def list_failovers(self, *, limit: int = 50) -> list[FailoverEvent]:
-        result = await self.db.execute(
-            select(FailoverEvent).order_by(FailoverEvent.created_at.desc()).limit(min(limit, 200))
+    async def list_failovers(
+        self, *, limit: int = 25, offset: int = 0
+    ) -> tuple[list[FailoverEvent], int]:
+        total = int(
+            (await self.db.execute(select(func.count()).select_from(FailoverEvent))).scalar_one()
+            or 0
         )
-        return list(result.scalars().all())
+        result = await self.db.execute(
+            select(FailoverEvent)
+            .order_by(FailoverEvent.created_at.desc())
+            .limit(min(max(limit, 1), 100))
+            .offset(max(offset, 0))
+        )
+        return list(result.scalars().all()), total
 
     async def place(
         self,
@@ -199,6 +215,9 @@ class OrderService:
                 sem.release()
 
     async def _submit_inline(self, order: Order, chain: list) -> None:
+        from app.sim.service import apply_faults_to_providers
+
+        await apply_faults_to_providers(self.providers)
         broker_provider = await self.providers.get_broker_provider(self.db)
         last_error: str | None = None
         last_code: str | None = None

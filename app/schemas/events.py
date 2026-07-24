@@ -51,15 +51,16 @@ class RotateIpResponse(BaseModel):
 class OutboxEventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
+    id: UUID | str
     event_type: str
     topic: str
     payload: dict[str, Any]
     status: str
     error: str | None = None
     correlation_id: str | None = None
-    created_at: datetime
-    sent_at: datetime | None = None
+    created_at: datetime | str
+    sent_at: datetime | str | None = None
+    source: str | None = None
 
 
 class OutboxDrainResponse(BaseModel):

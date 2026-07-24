@@ -58,5 +58,7 @@ class OrderResponse(BaseModel):
 
 class OrderListResponse(BaseModel):
     items: list[OrderResponse]
+    total: int = 0
     limit: int
     offset: int
+    next_offset: int | None = None

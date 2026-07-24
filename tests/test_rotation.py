@@ -6,6 +6,7 @@ from app.db.session import get_session_factory
 from app.models.config_item import ConfigurationItem
 from app.models.order import Order
 from sqlalchemy import select
+from tests.helpers import as_items
 
 
 async def _token(client) -> str:
@@ -52,7 +53,7 @@ async def _setup_assigned_ip(client, headers, broker_id: str, client_id: str, re
 @pytest.mark.asyncio
 async def test_rotate_happy_path(client):
     headers = await _auth(client)
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     alpha = next(b for b in brokers if "Alpha" in b["display_name"])
     ip = await _setup_assigned_ip(client, headers, alpha["id"], alpha["client_id"])
 
@@ -69,14 +70,14 @@ async def test_rotate_happy_path(client):
     assert body["old_ip"] != body["new_ip"]
     assert body["drained"] is True
 
-    events = (await client.get("/api/v1/monitoring/events", headers=headers)).json()
+    events = as_items((await client.get("/api/v1/monitoring/events", headers=headers)).json())
     assert any(e["event_type"] == "ip.rotated" and e["status"] == "pending" for e in events)
 
 
 @pytest.mark.asyncio
 async def test_rotate_abort_on_drain_timeout(client):
     headers = await _auth(client)
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     alpha = next(b for b in brokers if "Alpha" in b["display_name"])
     ip = await _setup_assigned_ip(client, headers, alpha["id"], alpha["client_id"])
 
@@ -115,7 +116,7 @@ async def test_rotate_abort_on_drain_timeout(client):
 @pytest.mark.asyncio
 async def test_rotate_force_on_drain_timeout(client):
     headers = await _auth(client)
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     beta = next(b for b in brokers if "Beta" in b["display_name"])
     ip = await _setup_assigned_ip(client, headers, beta["id"], beta["client_id"])
 

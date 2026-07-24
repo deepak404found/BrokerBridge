@@ -3,6 +3,7 @@ import uuid
 import pytest
 
 from app.providers.manager import get_provider_manager
+from tests.helpers import as_items
 
 
 async def _login(client):
@@ -44,7 +45,7 @@ async def _assign_ip(client, headers, broker_id, client_id, region="ewr"):
 async def test_failover_to_second_broker(client):
     token = await _login(client)
     headers = {"Authorization": f"Bearer {token}"}
-    brokers = (await client.get("/api/v1/brokers", headers=headers)).json()
+    brokers = as_items((await client.get("/api/v1/brokers", headers=headers)).json())
     # Prefer Alpha (higher priority number in seed: Alpha=10, Beta=20) — actually
     # priority_bonus = priority * 2, so Beta (20) scores higher. Assign both IPs.
     client_id = brokers[0]["client_id"]
@@ -79,7 +80,7 @@ async def test_failover_to_second_broker(client):
 
     failovers = await client.get("/api/v1/monitoring/failovers", headers=headers)
     assert failovers.status_code == 200
-    events = failovers.json()
+    events = as_items(failovers.json())
     assert len(events) >= 1
     assert any(
         e["from_broker_id"] == alpha["id"] and e["to_broker_id"] == beta["id"] for e in events

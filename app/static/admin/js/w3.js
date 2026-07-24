@@ -39,7 +39,7 @@
 
   async function resolveDemoClientId() {
     if (demoClientId) return demoClientId;
-    const brokers = await api().json("/brokers");
+    const brokers = api().asItems(await api().json("/brokers"));
     if (brokers.length) {
       demoClientId = brokers[0].client_id;
       return demoClientId;
@@ -176,7 +176,8 @@
 
   async function loadOrders() {
     await ensureAuth();
-    const list = await api().json("/orders?limit=50");
+    const listPayload = await api().json("/orders?limit=50&offset=0");
+    const list = { items: api().asItems(listPayload), ...api().pageMeta(listPayload, 50) };
     const engine = await api().json("/monitoring/orders/engine");
     const engineEl = document.getElementById("w3-orders-engine");
     if (engineEl) {

@@ -5,7 +5,7 @@ import uuid
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
@@ -57,12 +57,20 @@ class BrokerService:
         await self.db.refresh(row)
         return row
 
-    async def list(self, *, client_id: uuid.UUID | None = None) -> list[BrokerAccount]:
-        stmt = select(BrokerAccount).order_by(BrokerAccount.priority.asc(), BrokerAccount.display_name)
+    async def list(self, *, client_id: uuid.UUID | None = None, limit: int = 25, offset: int = 0) -> tuple[list[BrokerAccount], int]:
+        filters = []
         if client_id is not None:
-            stmt = stmt.where(BrokerAccount.client_id == client_id)
+            filters.append(BrokerAccount.client_id == client_id)
+        count_q = select(func.count()).select_from(BrokerAccount)
+        if filters:
+            count_q = count_q.where(*filters)
+        total = int((await self.db.execute(count_q)).scalar_one() or 0)
+        stmt = select(BrokerAccount).order_by(BrokerAccount.priority.asc(), BrokerAccount.display_name)
+        if filters:
+            stmt = stmt.where(*filters)
+        stmt = stmt.limit(min(max(limit, 1), 100)).offset(max(offset, 0))
         result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+        return list(result.scalars().all()), total
 
     async def get(self, broker_id: uuid.UUID) -> BrokerAccount:
         result = await self.db.execute(select(BrokerAccount).where(BrokerAccount.id == broker_id))

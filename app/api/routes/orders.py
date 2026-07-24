@@ -180,7 +180,13 @@ async def get_order(
     responses={
         200: success_response(
             "Orders",
-            example={"items": [_ORDER_EXAMPLE], "limit": 50, "offset": 0},
+            example={
+                "items": [_ORDER_EXAMPLE],
+                "total": 1,
+                "limit": 25,
+                "offset": 0,
+                "next_offset": None,
+            },
         )
     },
 )
@@ -191,18 +197,21 @@ async def list_orders(
     client_id: uuid.UUID | None = None,
     status_filter: Annotated[str | None, Query(alias="status")] = None,
     symbol: str | None = None,
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(25, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> OrderListResponse:
-    items = await _svc(db, settings).list_orders(
+    items, total = await _svc(db, settings).list_orders(
         client_id=client_id,
         status=status_filter,
         symbol=symbol,
         limit=limit,
         offset=offset,
     )
+    nxt = offset + len(items)
     return OrderListResponse(
         items=[_to_response(o) for o in items],
+        total=total,
         limit=limit,
         offset=offset,
+        next_offset=None if nxt >= total or not items else nxt,
     )
