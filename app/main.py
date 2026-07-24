@@ -100,8 +100,8 @@ def create_app() -> FastAPI:
     admin_dir = Path(__file__).parent / "static" / "admin"
     favicon_path = admin_dir / "favicon.png"
 
-    @app.get("/favicon.ico", include_in_schema=False)
-    async def favicon() -> FileResponse | RedirectResponse:
+    @app.get("/favicon.ico", include_in_schema=False, response_model=None)
+    async def favicon():
         if favicon_path.is_file():
             return FileResponse(favicon_path, media_type="image/png")
         return RedirectResponse(url="/admin")
