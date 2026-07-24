@@ -1,52 +1,58 @@
-# Render Deploy Guide — BrokerBridge
+# Render deploy
 
-BrokerBridge runs as a **modular monolith**: one Web (API) service + one Worker, plus managed Postgres and Redis. Event bus may be Memory (simplest) or an external Kafka/Redpanda-compatible cluster.
+BrokerBridge on Render is a **modular monolith**: Web (API) + Worker, managed Postgres, managed Redis (e.g. Upstash), and an optional external Kafka/Redpanda-compatible bus.
 
-## Recommended Local Lab vs Render
+**Local Docker Compose is the fuller / more realistic lab** (in-stack Redpanda, Redis stop demo, optional `mock_backend=docker`). See [LOCAL_SETUP.md](../LOCAL_SETUP.md). On Render, use mock infra **`database` only** — never mount a Docker socket.
+
+## Local Lab vs Render
 
 | Concern | Local Lab (`docker compose`) | Render |
 |---|---|---|
-| Infra provider | `INFRA_PROVIDER=mock` | `INFRA_PROVIDER=mock` |
-| Mock backend | `MOCK_INFRA_BACKEND=database` (default) | **`database` only** |
-| Docker socket | Local Lab compose mounts for optional `mock_backend=docker` | **Never mount** |
-| Vultr | Optional via Admin Runtime Config | Optional later (plug key in Admin) |
+| Infra provider | `mock` | `mock` |
+| Mock backend | `database` (default) or `docker` | **`database` only** |
+| Docker socket | Mounted for optional docker mock | **Never** |
+| Event bus | Compose Redpanda | External cluster or **memory** via Admin |
+| Redis | Compose Redis | Upstash / managed `REDIS_URL` |
+| Vultr | Optional Admin activate | Optional Admin activate |
 
-## Services to create
+## Services
 
-1. **Web** — Docker image from this repo; start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-2. **Worker** — same image; start `python -m app.workers.main`
-3. **PostgreSQL** — managed; set `DATABASE_URL=postgresql+asyncpg://…`
-4. **Redis** — managed; set `REDIS_URL=redis://…` and prefer `LOCK_PROVIDER=redis`, `SESSION_PROVIDER=redis`, `RATE_LIMIT_PROVIDER=redis`
+1. **Web** — image from this repo; `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+2. **Worker** — same image; `python -m app.workers.main`
+3. **PostgreSQL** — managed; `DATABASE_URL=postgresql+asyncpg://…`
+4. **Redis** — managed; `REDIS_URL=…` with `LOCK_PROVIDER=redis`, `SESSION_PROVIDER=redis`, `RATE_LIMIT_PROVIDER=redis`
 
-## Required env (no secrets in git)
+## Required env (dashboard only — no secrets in git)
 
-Copy from `.env.example` and fill in the Render dashboard:
+From `.env.example` patterns:
 
 - `JWT_SECRET`, `SECRETS_FERNET_KEY`, `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`
 - `DATABASE_URL`, `REDIS_URL`
 - `INFRA_PROVIDER=mock`
 - `MOCK_INFRA_BACKEND=database`
 - `BROKER_PROVIDER=mock`
-- `EVENT_PROVIDER=memory` (or Redpanda/Kafka brokers if you attach a bus)
-- Leave `VULTR_API_KEY` empty — use Admin **Runtime Config** to validate/activate Vultr later (FR-21)
+- `EVENT_PROVIDER=memory` **or** reachable Redpanda/Kafka bootstrap (`KAFKA_*` / `REDPANDA_*`)
 
-## Security notes
+If Redpanda health shows `Connection refused`, Admin → Runtime Config → activate **memory** for the event provider so Event Bus and outbox demos still work. `/health/ready` may remain `not_ready` until the bus endpoint is fixed.
 
-- Do **not** mount `/var/run/docker.sock` on Render or any shared host.
-- Never commit `.env` or Vultr API keys.
+Leave `VULTR_API_KEY` empty in env; use Admin Runtime Config for Vultr keys (masked).
+
+## Security
+
+- Do not mount `/var/run/docker.sock` on Render.
+- Never commit `.env` or API keys.
 - Admin secrets are write-only / masked in API responses.
 
-## Bootstrap checklist
+## After deploy
 
-1. Deploy Web + Worker with the env above.
-2. Open `/admin` → login with seed admin.
-3. Confirm Runtime Config shows `Active: mock (database)`.
-4. Smoke Brokers → Static IPs → Orders → Events.
-5. Optional: Runtime Config → Vultr with a real key (paid) or confirm fake key validate fails cleanly.
+1. Open `/admin` → login with seed admin configured on Render.
+2. Runtime Config → infra **mock / database**.
+3. Smoke Brokers → (create subscription + IP attach if empty) → Orders → Event Bus.
+4. Click-path detail: [DEMO.md](../DEMO.md).
 
 ## Migrations
 
-API lifespan runs `create_all` for Local Lab convenience. For production, prefer Alembic:
+API lifespan may `create_all` for convenience. Prefer:
 
 ```bash
 alembic upgrade head

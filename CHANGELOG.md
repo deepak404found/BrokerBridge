@@ -10,7 +10,7 @@ Commit + changelog updates happen **after wave testing**, only with user approva
 
 ### Documentation
 
-- Planning artifacts continue under `docs/plans/` for upcoming waves
+- Assignment-facing README hub plus lean docs: `LOCAL_SETUP`, `ARCHITECTURE`, `FEATURES`, `DEMO`, refreshed `deploy/RENDER.md`
 
 ## [0.7.0] - 2026-07-24
 
