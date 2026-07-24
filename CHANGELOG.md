@@ -12,6 +12,27 @@ Commit + changelog updates happen **after wave testing**, only with user approva
 
 - Planning artifacts continue under `docs/plans/` for upcoming waves
 
+## [0.4.0] - 2026-07-24
+
+### Added
+
+- Broker health scoring + probe APIs and Admin Broker Health page
+- Per-broker rate-limit snapshots (Redis in Compose / Memory in pytest) and Admin Rate Limits page
+- Smart routing (`WEIGHTED_SCORE`) with `require_assigned_ip=true`, config weights GET/PUT, and routing preview
+- Inline Mode B orders: buy/sell/cancel/history with idempotency and basic failover
+- Alembic `003_w3` models for orders, attempts, health snapshots, failover events
+- Admin Orders UX: field labels and auto-filled editable `client_order_id`
+- Compose loads secrets via `env_file: .env`; `.env.example` documents Local Lab placeholders
+- Pytest coverage for health, rate limits, routing, orders, failover, OpenAPI W3 paths
+- Compose E2E helper `scripts/w3_compose_e2e.sh`
+
+### Who / Where
+
+- Who: deepak404found
+- Where: branch `main`
+
+See `docs/changelogs/WAVE-03.md` for detail.
+
 ## [0.3.0] - 2026-07-24
 
 ### Added

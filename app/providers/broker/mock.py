@@ -18,12 +18,61 @@ class MockBrokerProvider:
 
     def __init__(self) -> None:
         self._sessions: dict[str, dict[str, Any]] = {}
+        self._orders: dict[str, dict[str, Any]] = {}
+        self._fail_remaining: int = 0
+        self._fail_status: int = 503
+        self._fail_code: str = "BROKER_UNAVAILABLE"
+
+    def fail_next_n(self, n: int, *, status: int = 503, code: str = "BROKER_UNAVAILABLE") -> None:
+        """Test hook: next N place_order calls raise a retryable failure."""
+        self._fail_remaining = max(0, int(n))
+        self._fail_status = status
+        self._fail_code = code
 
     async def probe(self) -> dict[str, Any]:
-        return {"ok": True, "provider": "mock"}
+        return {
+            "ok": True,
+            "provider": "mock",
+            "success_rate": 1.0,
+            "timeout_rate": 0.0,
+        }
 
     async def place_order(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return {"status": "accepted", "broker_order_id": f"mock-{uuid.uuid4().hex[:8]}", "echo": payload}
+        if self._fail_remaining > 0:
+            self._fail_remaining -= 1
+            raise MockBrokerError(
+                self._fail_code,
+                f"Mock broker injected failure ({self._fail_status})",
+                status=self._fail_status,
+                retryable=True,
+            )
+        broker_order_id = f"mock-{uuid.uuid4().hex[:8]}"
+        result = {
+            "status": "accepted",
+            "broker_order_id": broker_order_id,
+            "echo": payload,
+        }
+        self._orders[broker_order_id] = result
+        return result
+
+    async def cancel_order(
+        self, broker_order_id: str, *, payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        existing = self._orders.get(broker_order_id)
+        if existing is None and not broker_order_id.startswith("mock-"):
+            raise MockBrokerError(
+                "ORDER_NOT_FOUND",
+                f"Unknown broker order {broker_order_id}",
+                status=404,
+                retryable=False,
+            )
+        cancelled = {
+            "status": "cancelled",
+            "broker_order_id": broker_order_id,
+            "echo": payload or {},
+        }
+        self._orders[broker_order_id] = cancelled
+        return cancelled
 
     async def authenticate(self, credentials: dict[str, Any]) -> dict[str, Any]:
         access = f"mock-access-{uuid.uuid4().hex}"
@@ -70,3 +119,19 @@ class MockBrokerProvider:
             }
         )
         return {"format": "json", "payload": payload}
+
+
+class MockBrokerError(Exception):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status: int = 503,
+        retryable: bool = True,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status = status
+        self.retryable = retryable

@@ -26,9 +26,12 @@ poetry run uvicorn app.main:app --reload --port 8000
 poetry run alembic upgrade head
 ```
 
-Copy `.env.example` to `.env` if you want local overrides.
+Copy `.env.example` to `.env` and replace the placeholders with Local Lab values
+(`.env` is gitignored — never commit it). Compose loads `.env` for postgres
+`${POSTGRES_*}` substitution and as `env_file` for `api` / `worker` — do not put
+secrets or connection strings inline in `docker-compose.yml`.
 
-**Dev admin (seeded on startup):** `admin@brokerbridge.local` / `admin123!`  
+**Dev admin (seeded on startup with Local Lab defaults):** `admin@brokerbridge.local` / `admin123!`  
 Login via Swagger `POST /api/v1/auth/token` (username = email) or the Admin JWT panel.
 
 ## Status

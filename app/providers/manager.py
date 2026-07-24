@@ -9,7 +9,13 @@ from app.config.settings import Settings, get_settings
 from app.models.provider_config import ProviderConfig, ProviderKind, ProviderScope, ProviderStatus
 from app.providers.broker.mock import MockBrokerProvider
 from app.providers.infrastructure.mock import MockInfrastructureProvider
-from app.providers.memory import MemoryCache, MemoryEventProvider, MemoryLock, MemorySession
+from app.providers.memory import (
+    MemoryCache,
+    MemoryEventProvider,
+    MemoryLock,
+    MemoryRateLimit,
+    MemorySession,
+)
 
 
 class ProviderManager:
@@ -95,6 +101,18 @@ class ProviderManager:
         else:
             provider = MemorySession()
         self._cache["session"] = provider
+        return provider
+
+    def get_rate_limit_provider(self) -> Any:
+        if "rate_limit" in self._cache:
+            return self._cache["rate_limit"]
+        if self.settings.rate_limit_provider == "redis":
+            from app.providers.redis_adapters import RedisRateLimit
+
+            provider = RedisRateLimit(self._get_redis())
+        else:
+            provider = MemoryRateLimit()
+        self._cache["rate_limit"] = provider
         return provider
 
     def get_event_provider(self) -> MemoryEventProvider:

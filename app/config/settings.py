@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     broker_provider: str = Field(default="mock", validation_alias="BROKER_PROVIDER")
     lock_provider: str = Field(default="memory", validation_alias="LOCK_PROVIDER")
     session_provider: str = Field(default="memory", validation_alias="SESSION_PROVIDER")
+    rate_limit_provider: str = Field(default="memory", validation_alias="RATE_LIMIT_PROVIDER")
+    max_inflight_orders: int = Field(default=100, validation_alias="MAX_INFLIGHT_ORDERS")
+    latency_budget_ms: float = Field(default=500.0, validation_alias="LATENCY_BUDGET_MS")
     ip_reuse_cooldown_hours: int = Field(default=24, validation_alias="IP_REUSE_COOLDOWN_HOURS")
 
 

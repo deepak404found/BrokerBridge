@@ -16,11 +16,20 @@ def sqlite_url(tmp_path) -> str:
     return f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
 
 
-@pytest.fixture
-async def configured_app(sqlite_url, monkeypatch):
+def _force_memory_providers(monkeypatch, sqlite_url: str) -> None:
     monkeypatch.setenv("DATABASE_URL", sqlite_url)
     monkeypatch.setenv("SEED_ADMIN_EMAIL", "admin@brokerbridge.local")
     monkeypatch.setenv("SEED_ADMIN_PASSWORD", "admin123!")
+    # Keep pytest on in-process providers even if Local Lab .env uses Redis hosts.
+    monkeypatch.setenv("LOCK_PROVIDER", "memory")
+    monkeypatch.setenv("SESSION_PROVIDER", "memory")
+    monkeypatch.setenv("RATE_LIMIT_PROVIDER", "memory")
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+
+
+@pytest.fixture
+async def configured_app(sqlite_url, monkeypatch):
+    _force_memory_providers(monkeypatch, sqlite_url)
     get_settings.cache_clear()
     db_session.engine = None
     db_session.SessionLocal = None
@@ -55,9 +64,7 @@ async def client(configured_app):
 @pytest.fixture
 def sync_client(sqlite_url, monkeypatch):
     """Sync TestClient with its own sqlite DB (lifespan creates schema)."""
-    monkeypatch.setenv("DATABASE_URL", sqlite_url)
-    monkeypatch.setenv("SEED_ADMIN_EMAIL", "admin@brokerbridge.local")
-    monkeypatch.setenv("SEED_ADMIN_PASSWORD", "admin123!")
+    _force_memory_providers(monkeypatch, sqlite_url)
     get_settings.cache_clear()
     db_session.engine = None
     db_session.SessionLocal = None

@@ -579,57 +579,146 @@
             <section id="page-orders" class="page-content hidden space-y-6">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
-                        <h1 class="text-xl font-bold text-white tracking-tight">Order Execution Audit</h1>
-                        <p class="text-xs text-gray-400">Order feed APIs land in a later wave.</p>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Order Execution</h1>
+                        <p class="text-xs text-gray-400">Inline buy/sell/cancel. Brokers need an assigned static IP before orders (BR-G01).</p>
+                    </div>
+                    <button onclick="window.W3Admin && W3Admin.loadOrders()" class="px-3.5 py-2 bg-dark-700 hover:bg-white/10 text-gray-200 rounded-lg text-xs font-semibold transition">
+                        <i class="fa-solid fa-rotate mr-1"></i> Reload
+                    </button>
+                </div>
+
+                <div class="glass-panel rounded-xl p-4 space-y-3">
+                    <div class="text-xs font-semibold text-white uppercase tracking-wider">Place order</div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <label class="text-[11px] text-gray-400 block" for="w3-order-client-order-id">
+                            Client order ID
+                            <span class="block text-[10px] text-gray-500 font-normal mt-0.5">Auto-filled; editable</span>
+                            <input id="w3-order-client-order-id" type="text" placeholder="admin-…" class="mt-1 w-full bg-dark-900 border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-mono">
+                        </label>
+                        <label class="text-[11px] text-gray-400 block" for="w3-order-symbol">
+                            Symbol
+                            <span class="block text-[10px] text-gray-500 font-normal mt-0.5">e.g. AAPL</span>
+                            <input id="w3-order-symbol" type="text" value="AAPL" class="mt-1 w-full bg-dark-900 border border-white/10 rounded-lg px-3 py-2 text-xs text-white">
+                        </label>
+                        <label class="text-[11px] text-gray-400 block" for="w3-order-qty">
+                            Quantity
+                            <span class="block text-[10px] text-gray-500 font-normal mt-0.5">Shares / units</span>
+                            <input id="w3-order-qty" type="number" value="10" min="1" class="mt-1 w-full bg-dark-900 border border-white/10 rounded-lg px-3 py-2 text-xs text-white">
+                        </label>
+                        <label class="text-[11px] text-gray-400 block" for="w3-order-region">
+                            Region
+                            <span class="block text-[10px] text-gray-500 font-normal mt-0.5">Prefer ewr / ord / any</span>
+                            <select id="w3-order-region" class="mt-1 w-full bg-dark-900 border border-white/10 rounded-lg px-3 py-2 text-xs text-white">
+                                <option value="ewr">ewr</option>
+                                <option value="ord">ord</option>
+                                <option value="">any</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="window.W3Admin && W3Admin.placeBuy()" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold">Buy</button>
+                        <button onclick="window.W3Admin && W3Admin.placeSell()" class="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold">Sell</button>
+                        <span id="w3-orders-engine" class="text-[11px] text-gray-400 font-mono self-center ml-2"></span>
                     </div>
                 </div>
 
-                <div class="glass-panel rounded-xl p-12 text-center space-y-3">
-                    <div class="w-12 h-12 mx-auto rounded-full bg-white/5 flex items-center justify-center text-gray-500">
-                        <i class="fa-solid fa-plug-circle-xmark text-lg"></i>
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="p-4 border-b border-white/10 flex justify-between items-center">
+                        <span class="font-semibold text-xs text-white uppercase tracking-wider">Order history</span>
+                        <span class="text-xs text-gray-400 font-mono">Live from <strong class="text-emerald-400">/api/v1/orders</strong></span>
                     </div>
-                    <h2 class="text-sm font-semibold text-white">Not connected yet</h2>
-                    <p class="text-xs text-gray-400 max-w-lg mx-auto leading-relaxed">APIs for this view land in a later wave. Live data is available under Brokers, Sessions, and Static IPs.</p>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                                <tr>
+                                    <th class="py-3 px-4">Client order</th>
+                                    <th class="py-3 px-4">Side</th>
+                                    <th class="py-3 px-4">Symbol</th>
+                                    <th class="py-3 px-4">Qty</th>
+                                    <th class="py-3 px-4">Status</th>
+                                    <th class="py-3 px-4">Broker</th>
+                                    <th class="py-3 px-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="w3-orders-tbody" class="divide-y divide-white/5 font-mono text-gray-300">
+                                <tr><td colspan="7" class="py-6 px-4 text-center text-gray-500">Sign in, then open Orders to load live data.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-
             </section>
 
             <!-- PAGE 7: SMART ROUTING -->
             <section id="page-routing" class="page-content hidden space-y-6">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
-                        <h1 class="text-xl font-bold text-white tracking-tight">Smart Order Routing Engine (SOR)</h1>
-                        <p class="text-xs text-gray-400">Routing score matrix APIs land in a later wave.</p>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Smart Order Routing</h1>
+                        <p class="text-xs text-gray-400">WEIGHTED_SCORE policy · assigned IP required by default.</p>
                     </div>
+                    <button onclick="window.W3Admin && W3Admin.loadRouting()" class="px-3.5 py-2 bg-dark-700 hover:bg-white/10 text-gray-200 rounded-lg text-xs font-semibold transition">
+                        <i class="fa-solid fa-rotate mr-1"></i> Reload
+                    </button>
                 </div>
 
-                <div class="glass-panel rounded-xl p-12 text-center space-y-3">
-                    <div class="w-12 h-12 mx-auto rounded-full bg-white/5 flex items-center justify-center text-gray-500">
-                        <i class="fa-solid fa-plug-circle-xmark text-lg"></i>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="glass-panel rounded-xl p-4 space-y-3">
+                        <div class="text-xs font-semibold text-white uppercase tracking-wider">Routing weights</div>
+                        <div class="grid grid-cols-2 gap-2" id="w3-weights-form">
+                            <label class="text-[11px] text-gray-400">w_lat<input id="w3-w-lat" type="number" step="0.01" class="mt-1 w-full bg-dark-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white"></label>
+                            <label class="text-[11px] text-gray-400">w_succ<input id="w3-w-succ" type="number" step="0.01" class="mt-1 w-full bg-dark-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white"></label>
+                            <label class="text-[11px] text-gray-400">w_conn<input id="w3-w-conn" type="number" step="0.01" class="mt-1 w-full bg-dark-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white"></label>
+                            <label class="text-[11px] text-gray-400">w_to<input id="w3-w-to" type="number" step="0.01" class="mt-1 w-full bg-dark-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white"></label>
+                            <label class="text-[11px] text-gray-400">w_ip<input id="w3-w-ip" type="number" step="0.01" class="mt-1 w-full bg-dark-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white"></label>
+                        </div>
+                        <button onclick="window.W3Admin && W3Admin.saveWeights()" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold">Save weights</button>
+                        <div id="w3-routing-flags" class="text-[11px] text-gray-400 font-mono"></div>
                     </div>
-                    <h2 class="text-sm font-semibold text-white">Not connected yet</h2>
-                    <p class="text-xs text-gray-400 max-w-lg mx-auto leading-relaxed">APIs for this view land in a later wave. Live data is available under Brokers, Sessions, and Static IPs.</p>
+                    <div class="glass-panel rounded-xl p-4 space-y-3">
+                        <div class="flex justify-between items-center">
+                            <div class="text-xs font-semibold text-white uppercase tracking-wider">Candidate preview</div>
+                            <button onclick="window.W3Admin && W3Admin.previewRouting()" class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold">Preview</button>
+                        </div>
+                        <div id="w3-routing-preview" class="text-xs font-mono text-gray-300 whitespace-pre-wrap max-h-72 overflow-y-auto">Run preview to score eligible brokers.</div>
+                    </div>
                 </div>
-
             </section>
 
             <!-- PAGE 8: BROKER HEALTH -->
             <section id="page-broker-health" class="page-content hidden space-y-6">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
-                        <h1 class="text-xl font-bold text-white tracking-tight">Broker Gateway Telemetry & Circuit Breakers</h1>
-                        <p class="text-xs text-gray-400">Health telemetry APIs land in a later wave. Broker inventory is live under Brokers.</p>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Broker Health</h1>
+                        <p class="text-xs text-gray-400">Probe latency, connectivity, and composite scores.</p>
                     </div>
+                    <button onclick="window.W3Admin && W3Admin.probeHealth()" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-lg shadow-blue-600/20 transition">
+                        <i class="fa-solid fa-stethoscope mr-1"></i> Probe now
+                    </button>
                 </div>
 
-                <div class="glass-panel rounded-xl p-12 text-center space-y-3">
-                    <div class="w-12 h-12 mx-auto rounded-full bg-white/5 flex items-center justify-center text-gray-500">
-                        <i class="fa-solid fa-plug-circle-xmark text-lg"></i>
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="p-4 border-b border-white/10 flex justify-between items-center">
+                        <span class="font-semibold text-xs text-white uppercase tracking-wider">Latest snapshots</span>
+                        <span class="text-xs text-gray-400 font-mono">Live from <strong class="text-emerald-400">/api/v1/monitoring/brokers/health</strong></span>
                     </div>
-                    <h2 class="text-sm font-semibold text-white">Not connected yet</h2>
-                    <p class="text-xs text-gray-400 max-w-lg mx-auto leading-relaxed">APIs for this view land in a later wave. Live data is available under Brokers, Sessions, and Static IPs.</p>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                                <tr>
+                                    <th class="py-3 px-4">Broker</th>
+                                    <th class="py-3 px-4">Score</th>
+                                    <th class="py-3 px-4">Status</th>
+                                    <th class="py-3 px-4">Latency</th>
+                                    <th class="py-3 px-4">Success</th>
+                                    <th class="py-3 px-4">IP health</th>
+                                    <th class="py-3 px-4">Measured</th>
+                                </tr>
+                            </thead>
+                            <tbody id="w3-health-tbody" class="divide-y divide-white/5 font-mono text-gray-300">
+                                <tr><td colspan="7" class="py-6 px-4 text-center text-gray-500">Sign in, then open Broker Health to load live data.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-
             </section>
 
             <!-- PAGE 9: SESSION MANAGEMENT -->
@@ -669,19 +758,37 @@
             <section id="page-rate-limits" class="page-content hidden space-y-6">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
-                        <h1 class="text-xl font-bold text-white tracking-tight">Broker Rate Limit Allocations</h1>
-                        <p class="text-xs text-gray-400">Rate-limit bucket APIs land in a later wave.</p>
+                        <h1 class="text-xl font-bold text-white tracking-tight">Broker Rate Limits</h1>
+                        <p class="text-xs text-gray-400">Per-broker sliding-window quotas and pressure (0–20).</p>
                     </div>
+                    <button onclick="window.W3Admin && W3Admin.loadRateLimits()" class="px-3.5 py-2 bg-dark-700 hover:bg-white/10 text-gray-200 rounded-lg text-xs font-semibold transition">
+                        <i class="fa-solid fa-rotate mr-1"></i> Reload
+                    </button>
                 </div>
 
-                <div class="glass-panel rounded-xl p-12 text-center space-y-3">
-                    <div class="w-12 h-12 mx-auto rounded-full bg-white/5 flex items-center justify-center text-gray-500">
-                        <i class="fa-solid fa-plug-circle-xmark text-lg"></i>
+                <div class="glass-panel rounded-xl overflow-hidden">
+                    <div class="p-4 border-b border-white/10 flex justify-between items-center">
+                        <span class="font-semibold text-xs text-white uppercase tracking-wider">Quota snapshots</span>
+                        <span class="text-xs text-gray-400 font-mono">Live from <strong class="text-emerald-400">/api/v1/monitoring/rate-limits</strong></span>
                     </div>
-                    <h2 class="text-sm font-semibold text-white">Not connected yet</h2>
-                    <p class="text-xs text-gray-400 max-w-lg mx-auto leading-relaxed">APIs for this view land in a later wave. Live data is available under Brokers, Sessions, and Static IPs.</p>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-dark-800 text-gray-400 uppercase font-semibold text-[10px] tracking-wider border-b border-white/10">
+                                <tr>
+                                    <th class="py-3 px-4">Broker</th>
+                                    <th class="py-3 px-4">Limit RPS</th>
+                                    <th class="py-3 px-4">Used</th>
+                                    <th class="py-3 px-4">Remaining</th>
+                                    <th class="py-3 px-4">Pressure</th>
+                                    <th class="py-3 px-4">Window</th>
+                                </tr>
+                            </thead>
+                            <tbody id="w3-rate-tbody" class="divide-y divide-white/5 font-mono text-gray-300">
+                                <tr><td colspan="6" class="py-6 px-4 text-center text-gray-500">Sign in, then open Rate Limits to load live data.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-
             </section>
 
             <!-- PAGE 11: EVENT BUS -->
@@ -1167,5 +1274,6 @@
     </script>
     <script src="/admin/js/api.js"></script>
     <script src="/admin/js/w2.js"></script>
+    <script src="/admin/js/w3.js"></script>
 </body>
 </html>

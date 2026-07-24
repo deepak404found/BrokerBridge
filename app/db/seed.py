@@ -70,6 +70,27 @@ async def seed_defaults(session: AsyncSession, settings: Settings) -> None:
             )
         )
 
+    w3_defaults: dict[str, dict] = {
+        "routing.weights": {
+            "w_lat": 0.25,
+            "w_succ": 0.30,
+            "w_conn": 0.15,
+            "w_to": 0.20,
+            "w_ip": 0.10,
+        },
+        "routing.health_thresholds": {"healthy_min": 80, "degraded_min": 50},
+        "routing.require_assigned_ip": {"enabled": True},
+        "routing.policy": {"policy": "WEIGHTED_SCORE"},
+        "rate_limit.exceed_policy": {"policy": "REROUTE"},
+        "orders.execution_mode": {"mode": "inline"},
+    }
+    for key, value in w3_defaults.items():
+        existing = await session.execute(
+            select(ConfigurationItem).where(ConfigurationItem.key == key)
+        )
+        if existing.scalar_one_or_none() is None:
+            session.add(ConfigurationItem(key=key, value=value, version=1))
+
     brokers = await session.execute(
         select(BrokerAccount).where(BrokerAccount.client_id == client.id)
     )
